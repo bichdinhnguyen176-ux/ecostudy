@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Temporary & Log files
+*.log
+extracted_content.txt
+
+# OS metadata
+.DS_Store
+Thumbs.db
+

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EcoStudy – Trợ Lý AI Đồng Hành Cùng Học Sinh</title>
+  <meta name="description" content="Nền tảng trợ lý học tập AI thông minh, cá nhân hóa lịch học, bảo vệ thời gian nghỉ và rèn luyện kỹ năng tự học. Learn Smart. Rest Well. Grow Better.">
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', var(--font-family); }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-badge">🌱</div>
+        <div class="brand-text">
+          <h1>EcoStudy</h1>
+          <p>Learn Smart • Rest Well</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">Trung tâm điều hành</div>
+        <a class="nav-item active" data-tab="dashboard">
+          <span class="icon">📊</span>
+          <span>Tổng Quan (Dashboard)</span>
+        </a>
+        <a class="nav-item" data-tab="check-in">
+          <span class="icon">🌅</span>
+          <span>Check-in Đầu Ngày</span>
+          <span class="nav-badge alert">Cần làm</span>
+        </a>
+        <a class="nav-item" data-tab="schedule">
+          <span class="icon">⚖️</span>
+          <span>Lập Lịch & Khả Thi</span>
+        </a>
+
+        <div class="nav-section-title">Quản lý học tập</div>
+        <a class="nav-item" data-tab="tasks">
+          <span class="icon">📋</span>
+          <span>Nhiệm Vụ & Chia Nhỏ</span>
+        </a>
+        <a class="nav-item" data-tab="backlog">
+          <span class="icon">🔄</span>
+          <span>Xử Lý Tồn Đọng</span>
+        </a>
+        <a class="nav-item" data-tab="check-out">
+          <span class="icon">✅</span>
+          <span>Check-out Nhiệm Vụ</span>
+        </a>
+        <a class="nav-item" data-tab="knowledge">
+          <span class="icon">🧠</span>
+          <span>Kho Kiến Thức & Ôn Lặp</span>
+        </a>
+
+        <div class="nav-section-title">Sức khỏe & Tự học</div>
+        <a class="nav-item" data-tab="modes">
+          <span class="icon">🛡️</span>
+          <span>Chế Độ Học Linh Hoạt</span>
+        </a>
+        <a class="nav-item" data-tab="journal">
+          <span class="icon">✍️</span>
+          <span>Nhật Ký Học Tập</span>
+        </a>
+        <a class="nav-item" data-tab="weekly-report">
+          <span class="icon">📈</span>
+          <span>Báo Cáo Hàng Tuần</span>
+        </a>
+
+        <div class="nav-section-title">Phân quyền & Kết nối</div>
+        <a class="nav-item" data-tab="parent-portal">
+          <span class="icon">👨‍👩‍👦</span>
+          <span>Cổng Phụ Huynh</span>
+        </a>
+        <a class="nav-item" data-tab="school-portal">
+          <span class="icon">🏫</span>
+          <span>Cổng Nhà Trường</span>
+        </a>
+        <a class="nav-item" data-tab="settings">
+          <span class="icon">⚙️</span>
+          <span>Cài Đặt & Quyền Riêng Tư</span>
+        </a>
+      </nav>
+
+      <!-- Sidebar Footer with Role Switcher & Student Info -->
+      <div class="sidebar-footer">
+        <div class="role-switcher-box">
+          <button class="role-btn active" data-role="student">Học Sinh</button>
+          <button class="role-btn" data-role="parent">Phụ Huynh</button>
+          <button class="role-btn" data-role="school">Nhà Trường</button>
+        </div>
+        <div class="profile-card">
+          <div class="avatar">MK</div>
+          <div class="profile-info">
+            <h4>Nguyễn Minh Khoa</h4>
+            <p>Lớp 12A1 • THPT Chuyên</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Wrapper -->
+    <div class="main-wrapper">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="topbar-title">
+            <h2 id="current-page-title">Tổng Quan Học Tập & Trạng Thái</h2>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Study Mode Pills Selector -->
+          <div class="mode-pill-selector">
+            <button class="mode-pill active" data-mode="normal">☀️ Bình thường</button>
+            <button class="mode-pill" data-mode="low_energy">🌙 Ít năng lượng</button>
+            <button class="mode-pill" data-mode="rest_day">🌿 Cần nghỉ ngơi</button>
+            <button class="mode-pill" data-mode="exam_prep">🎯 Ôn thi</button>
+          </div>
+
+          <!-- Energy/Fatigue Level Badge -->
+          <div class="energy-badge" id="topbar-energy-badge">
+            <span>⚡</span>
+            <span>Năng lượng tốt ✨</span>
+          </div>
+
+          <!-- Sleep Shield Status -->
+          <div class="sleep-shield-indicator" title="EcoStudy bảo vệ giờ ngủ: Không gửi thông báo và dừng lập lịch từ 23h00">
+            <span>🛡️</span>
+            <span>Sleep Shield: 23h00</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Dynamic Content Area -->
+      <main class="content-area" id="app-main-content">
+        <!-- Injected dynamically via UI.render() -->
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Application Scripts -->
+  <script type="module" src="scripts/app.js"></script>
+</body>
+</html>
+
