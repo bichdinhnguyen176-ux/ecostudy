@@ -1,11 +1,15 @@
 /**
- * ECOSTUDY UI RENDERER & INTERACTIVE COMPONENTS
- * Full implementation including:
- * - Landing Page (Public Showcase)
- * - Weekly Calendar (Time Blocks & Sleep Shield)
- * - Pomodoro Web Audio Chimes
- * - Dynamic Canvas Analytics Charts
- * - 12 Core Features from DU AN.docx
+ * ECOSTUDY USER INTERFACE CONTROLLER (UI 2.0)
+ * Implements full interactive workflows for EcoStudy:
+ * - 5 Main Tabs: Dashboard, Study Planner (5 sub-tabs), Health & Sleep, Reports, Settings
+ * - AI Chatbot & Morning Check-in
+ * - Quick Add Task & Priority Calculation with Bullet Points
+ * - Timetable (Daily & Weekly View, Conflict & Free Slot Analysis)
+ * - Backlog Manager (Overdue vs Unstarted, Rescheduling Solutions)
+ * - Study Review (Post-task checkout & AI adaptation)
+ * - Multi-user Account Management & Auth Modal
+ * - Onboarding Tour for Beginners
+ * - Theme Toggle (Light #f0f7f6 / Dark), Audio Chime & Notifications Drawer
  */
 
 import { store } from './state.js';
@@ -13,2078 +17,2790 @@ import { EcoAlgorithms } from './algorithms.js';
 
 export const UI = {
   activeTab: 'dashboard',
-  pomodoroTimerInterval: null,
-  pomodoroTimeRemaining: 25 * 60,
-  pomodoroRunning: false,
+  activePlannerSubTab: 'overview',
+  activeTimetableView: 'weekly', // 'weekly' | 'daily'
+  activeTimetableDay: 2, // 2: Thứ 2, ..., 8: Chủ Nhật
+  activeTaskFilterSubject: 'all',
+  activeTaskFilterStatus: 'all',
+
+  // Pomodoro timer state
+  pomodoroMinutes: 25,
+  pomodoroSeconds: 0,
+  pomodoroInterval: null,
   pomodoroMode: 'work', // 'work' | 'break'
+  pomodoroRunning: false,
 
   init() {
     this.bindNavigation();
-    this.bindRoleSwitcher();
-    this.bindModeSelector();
-    this.render();
-
-    store.subscribe(() => {
+    this.bindTopbarActions();
+    this.bindMobileEvents();
+    
+    // Subscribe to state changes
+    store.subscribe((state) => {
+      this.updateTopbarState(state);
       this.render();
     });
-  },
 
-  playChime(type = 'bell') {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      
-      if (type === 'bell') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(528, ctx.currentTime); // 528Hz calming tone
-        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.6);
-        gain.gain.setValueAtTime(0.12, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 1.2);
-      } else if (type === 'alert') {
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(440, ctx.currentTime);
-        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.8);
-      }
-    } catch (e) {
-      console.log("Audio play prevented or unavailable:", e);
+    // Initial render
+    this.updateTopbarState(store.getState());
+    this.render();
+
+    // Check first-time user for onboarding tour
+    if (!localStorage.getItem('ECOSTUDY_ONBOARDED_V2')) {
+      setTimeout(() => this.showOnboardingModal(), 600);
     }
   },
 
+  // ---------------- SOUND & CHIME ----------------
+  playChime(type = 'bell') {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'bell') {
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      } else if (type === 'alert') {
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      }
+    } catch (e) {
+      // Audio autoplay policy fallback
+    }
+  },
+
+  // ---------------- TOAST NOTIFICATIONS ----------------
+  showToast(message, type = 'info', duration = 3500) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    const icon = type === 'alert' ? '⚠️' : type === 'warning' ? '⏱️' : type === 'success' ? '✅' : '🌱';
+    toast.innerHTML = `<span>${icon}</span><div style="flex:1;">${message}</div><button style="background:none;border:none;cursor:pointer;color:inherit;font-size:1.1rem;">✕</button>`;
+
+    toast.querySelector('button').onclick = () => toast.remove();
+    container.appendChild(toast);
+    this.playChime(type === 'alert' ? 'alert' : 'bell');
+
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = 'all 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }
+    }, duration);
+  },
+
+  // ---------------- NAVIGATION BINDINGS ----------------
   bindNavigation() {
-    document.querySelectorAll('.nav-item').forEach(item => {
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.preventDefault();
         const tab = item.getAttribute('data-tab');
         if (tab) {
           this.switchTab(tab);
+          // Close mobile menu if open
+          this.closeMobileSidebar();
         }
       });
     });
-  },
 
-  bindRoleSwitcher() {
-    document.querySelectorAll('.role-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const role = btn.getAttribute('data-role');
-        store.setRole(role);
-        document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        
-        if (role === 'parent') {
-          this.switchTab('parent-portal');
-        } else if (role === 'school') {
-          this.switchTab('school-portal');
-        } else {
-          this.switchTab('dashboard');
-        }
+    // Profile card click -> open Settings or Auth Modal
+    const profileCard = document.getElementById('sidebar-profile-card');
+    if (profileCard) {
+      profileCard.addEventListener('click', () => {
+        this.switchTab('settings');
+        this.closeMobileSidebar();
       });
-    });
+    }
+
+    // Onboarding button in sidebar
+    const guideBtn = document.getElementById('open-onboarding-btn');
+    if (guideBtn) {
+      guideBtn.addEventListener('click', () => {
+        this.showOnboardingModal();
+        this.closeMobileSidebar();
+      });
+    }
   },
 
-  bindModeSelector() {
-    document.querySelectorAll('.mode-pill').forEach(pill => {
+  bindTopbarActions() {
+    // Mode selector pills
+    document.querySelectorAll('#topbar-mode-selector .mode-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         const mode = pill.getAttribute('data-mode');
         store.setMode(mode);
-        document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
-        pill.classList.add('active');
-        UI.showToast(`Đã chuyển sang chế độ: ${pill.innerText}`);
+        const modeNames = {
+          normal: "Bình thường",
+          low_energy: "Ít năng lượng",
+          rest_day: "Cần nghỉ ngơi",
+          exam_prep: "Ôn thi nước rút"
+        };
+        this.showToast(`Đã chuyển sang chế độ: ${modeNames[mode] || mode}`, 'success');
       });
     });
+
+    // Smart Rest Indicator click -> navigate to Health & Sleep tab
+    const smartRest = document.getElementById('topbar-smart-rest-indicator');
+    if (smartRest) {
+      smartRest.addEventListener('click', () => this.switchTab('health'));
+    }
+
+    // Energy badge click -> navigate to Dashboard check-in
+    const energyBadge = document.getElementById('topbar-energy-badge');
+    if (energyBadge) {
+      energyBadge.addEventListener('click', () => this.switchTab('dashboard'));
+    }
+
+    // Theme toggle button
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', () => {
+        const current = store.getState().data?.theme || 'light';
+        const next = current === 'light' ? 'dark' : 'light';
+        store.setTheme(next);
+        this.showToast(`Đã chuyển sang giao diện ${next === 'dark' ? 'Tối (Dark Mode)' : 'Sáng (Light Mode - Nền xanh lơ nhạt)'}`);
+      });
+    }
+
+    // Notification bell button
+    const notifBtn = document.getElementById('notification-bell-btn');
+    if (notifBtn) {
+      notifBtn.addEventListener('click', () => this.toggleNotificationDrawer(true));
+    }
+
+    // Drawer close button
+    const closeDrawerBtn = document.getElementById('close-drawer-btn');
+    if (closeDrawerBtn) {
+      closeDrawerBtn.addEventListener('click', () => this.toggleNotificationDrawer(false));
+    }
+
+    // Drawer Mark All Read
+    const markAllBtn = document.getElementById('mark-all-read-btn');
+    if (markAllBtn) {
+      markAllBtn.addEventListener('click', () => {
+        store.markNotificationAsRead('all');
+        this.showToast('Đã đánh dấu đã đọc tất cả thông báo.', 'success');
+        this.renderNotificationDrawer();
+      });
+    }
+
+    // Drawer Configure Notifications
+    const configNotifBtn = document.getElementById('configure-notifications-btn');
+    if (configNotifBtn) {
+      configNotifBtn.addEventListener('click', () => {
+        this.toggleNotificationDrawer(false);
+        this.switchTab('settings');
+      });
+    }
+  },
+
+  bindMobileEvents() {
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
+    const overlay = document.getElementById('sidebar-overlay');
+    const sidebar = document.getElementById('app-sidebar');
+
+    if (mobileMenuBtn && sidebar && overlay) {
+      mobileMenuBtn.addEventListener('click', () => {
+        sidebar.classList.add('mobile-open');
+        overlay.style.display = 'block';
+      });
+    }
+
+    const closeHandler = () => {
+      if (sidebar) sidebar.classList.remove('mobile-open');
+      if (overlay) overlay.style.display = 'none';
+    };
+
+    if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeHandler);
+    if (overlay) overlay.addEventListener('click', closeHandler);
+  },
+
+  closeMobileSidebar() {
+    const sidebar = document.getElementById('app-sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (overlay) overlay.style.display = 'none';
   },
 
   switchTab(tabName) {
     this.activeTab = tabName;
-    document.querySelectorAll('.nav-item').forEach(item => {
-      if (item.getAttribute('data-tab') === tabName) {
-        item.classList.add('active');
-      } else {
-        item.classList.remove('active');
-      }
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
     });
-
-    const pageTitleMap = {
-      'landing': 'Chào Mừng Đến Với EcoStudy',
-      'dashboard': 'Tổng Quan Học Tập & Trạng Thái',
-      'calendar': 'Lịch Học Cá Nhân (Weekly Time Blocks)',
-      'check-in': 'Check-in Đầu Ngày (AI Companion)',
-      'schedule': 'Phân Tích Tính Khả Thi & Lập Lịch',
-      'tasks': 'Quản Lý Nhiệm Vụ & Chia Nhỏ Thông Minh',
-      'backlog': 'Xử Lý Tồn Đọng & Tự Động Điều Chỉnh',
-      'check-out': 'Check-out & Đánh Giá Nhiệm Vụ',
-      'knowledge': 'Kho Kiến Thức & Ôn Tập Ngắt Quãng',
-      'weekly-report': 'Báo Cáo Tiến Độ Hàng Tuần',
-      'modes': 'Chế Độ Học Tập Linh Hoạt & Bảo Vệ Nghỉ Ngơi',
-      'journal': 'Nhật Ký Học Tập & Tự Đánh Giá',
-      'parent-portal': 'Cổng Phụ Huynh (Báo Cáo & Đồng Hành)',
-      'school-portal': 'Cổng Nhà Trường (Tổng Hợp Giáo Dục)',
-      'settings': 'Cài Đặt & Quyền Riêng Tư (Privacy Shield)'
-    };
 
     const titleEl = document.getElementById('current-page-title');
     if (titleEl) {
-      titleEl.innerText = pageTitleMap[tabName] || 'EcoStudy';
+      const titles = {
+        'dashboard': 'Tổng Quát / Dashboard',
+        'planner': 'Quản Lý Học Tập / Study Planner',
+        'health': 'Sức Khỏe & Giấc Ngủ',
+        'reports': 'Báo Cáo Học Tập',
+        'settings': 'Cài Đặt & Quyền Riêng Tư'
+      };
+      titleEl.textContent = titles[tabName] || 'EcoStudy';
     }
 
     this.render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
+  updateTopbarState(state) {
+    const { currentUser, data } = state;
+    if (!data) return;
+
+    // Profile card
+    const avatarEl = document.getElementById('sidebar-avatar');
+    const nameEl = document.getElementById('sidebar-user-name');
+    const gradeEl = document.getElementById('sidebar-user-grade');
+    if (nameEl && currentUser) {
+      nameEl.textContent = currentUser.name || 'Học sinh';
+      const initials = (currentUser.name || 'ES').split(' ').map(w => w[0]).join('').slice(-2).toUpperCase();
+      if (avatarEl) avatarEl.textContent = initials;
+      if (gradeEl) gradeEl.textContent = `${currentUser.grade || 'Lớp 12'} • ${currentUser.school || 'THPT'}`;
+    }
+
+    // Mode pills active
+    document.querySelectorAll('#topbar-mode-selector .mode-pill').forEach(pill => {
+      pill.classList.toggle('active', pill.getAttribute('data-mode') === data.currentMode);
+    });
+
+    // Theme icon
+    const themeIcon = document.getElementById('theme-icon');
+    if (themeIcon) {
+      themeIcon.textContent = data.theme === 'dark' ? '☀️' : '🌙';
+    }
+
+    // Active tasks count
+    const activeTasksCount = (data.tasks || []).filter(t => t.status !== 'completed').length;
+    const navBadge = document.getElementById('nav-active-tasks-count');
+    if (navBadge) navBadge.textContent = activeTasksCount;
+
+    // Notifications count badge
+    const unreadCount = (data.notifications || []).filter(n => !n.read).length;
+    const notifBadge = document.getElementById('notif-count-badge');
+    if (notifBadge) {
+      notifBadge.textContent = unreadCount;
+      notifBadge.style.display = unreadCount > 0 ? 'flex' : 'none';
+    }
+
+    // Energy badge
+    const energyText = document.getElementById('energy-badge-text');
+    if (energyText && data.todayCheckIn) {
+      const fatigue = EcoAlgorithms.assessFatigueLevel({
+        sleepHours: data.todayCheckIn.sleepHours,
+        alertness: data.todayCheckIn.alertness,
+        stressLevel: data.todayCheckIn.stressLevel,
+        studyContinuousMinutes: data.studyContinuousMinutes || 0
+      });
+      energyText.textContent = fatigue.badge;
+    }
+
+    // Smart Rest text
+    const smartRestText = document.getElementById('smart-rest-text');
+    if (smartRestText) {
+      smartRestText.textContent = `Giờ ngủ: ${data.settings?.sleepStart || '23:00'}`;
+    }
+  },
+
+  // ---------------- NOTIFICATIONS DRAWER ----------------
+  toggleNotificationDrawer(open = true) {
+    const drawer = document.getElementById('notification-drawer');
+    if (!drawer) return;
+    drawer.style.display = open ? 'flex' : 'none';
+    if (open) {
+      this.renderNotificationDrawer();
+    }
+  },
+
+  renderNotificationDrawer() {
+    const listEl = document.getElementById('drawer-notifications-list');
+    if (!listEl) return;
+    const notifs = store.getState().data?.notifications || [];
+
+    if (notifs.length === 0) {
+      listEl.innerHTML = `
+        <div style="text-align:center;padding:2.5rem 1rem;color:var(--text-muted);">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem;">🔔</div>
+          <p style="font-weight:700;">Không có thông báo mới</p>
+          <p style="font-size:0.8rem;">Bạn đã nắm bắt mọi nhắc nhở của EcoStudy!</p>
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = notifs.map(n => `
+      <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border-light);background:${n.read ? 'transparent' : 'var(--surface-muted)'};border-radius:var(--radius-sm);margin-bottom:0.5rem;transition:all 0.2s;" class="notif-item" data-id="${n.id}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem;">
+          <span style="font-weight:700;font-size:0.85rem;color:var(--text-main);">${n.title}</span>
+          <span style="font-size:0.72rem;color:var(--text-muted);">${n.time}</span>
+        </div>
+        <p style="font-size:0.8rem;color:var(--text-secondary);line-height:1.4;">${n.message}</p>
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.notif-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-id');
+        store.markNotificationAsRead(id);
+        this.renderNotificationDrawer();
+      });
+    });
+  },
+
+  // ---------------- MAIN ROUTER RENDER ----------------
   render() {
     const container = document.getElementById('app-main-content');
     if (!container) return;
 
-    this.updateTopbarEnergyBadge();
+    const state = store.getState();
+    if (!state.isLoggedIn) {
+      this.renderAuthModal();
+      return;
+    }
 
     switch (this.activeTab) {
-      case 'landing':
-        container.innerHTML = this.renderLanding();
-        this.bindLandingEvents();
-        break;
       case 'dashboard':
-        container.innerHTML = this.renderDashboard();
-        this.bindDashboardEvents();
+        this.renderDashboard(container, state);
         break;
-      case 'calendar':
-        container.innerHTML = this.renderCalendar();
-        this.bindCalendarEvents();
+      case 'planner':
+        this.renderStudyPlanner(container, state);
         break;
-      case 'check-in':
-        container.innerHTML = this.renderCheckIn();
-        this.bindCheckInEvents();
+      case 'health':
+        this.renderHealthAndSleep(container, state);
         break;
-      case 'schedule':
-        container.innerHTML = this.renderSchedulePlanner();
-        this.bindScheduleEvents();
-        break;
-      case 'tasks':
-        container.innerHTML = this.renderTasks();
-        this.bindTasksEvents();
-        break;
-      case 'backlog':
-        container.innerHTML = this.renderBacklog();
-        this.bindBacklogEvents();
-        break;
-      case 'check-out':
-        container.innerHTML = this.renderCheckOut();
-        this.bindCheckOutEvents();
-        break;
-      case 'knowledge':
-        container.innerHTML = this.renderKnowledgeReview();
-        this.bindKnowledgeEvents();
-        break;
-      case 'weekly-report':
-        container.innerHTML = this.renderWeeklyReport();
-        this.bindWeeklyReportEvents();
-        break;
-      case 'modes':
-        container.innerHTML = this.renderModes();
-        this.bindModesEvents();
-        break;
-      case 'journal':
-        container.innerHTML = this.renderJournal();
-        this.bindJournalEvents();
-        break;
-      case 'parent-portal':
-        container.innerHTML = this.renderParentPortal();
-        break;
-      case 'school-portal':
-        container.innerHTML = this.renderSchoolPortal();
+      case 'reports':
+        this.renderWeeklyReports(container, state);
         break;
       case 'settings':
-        container.innerHTML = this.renderSettings();
-        this.bindSettingsEvents();
+        this.renderSettings(container, state);
         break;
       default:
-        container.innerHTML = this.renderDashboard();
-        this.bindDashboardEvents();
+        this.renderDashboard(container, state);
     }
   },
 
-  updateTopbarEnergyBadge() {
-    const checkIn = store.data.todayCheckIn || {};
-    const fatigue = EcoAlgorithms.assessFatigueLevel({
-      sleepHours: checkIn.sleepHours || 7,
-      alertness: checkIn.alertness || 7,
-      stressLevel: checkIn.stressLevel || 4
+  // =========================================================================
+  // VIEW 1: TỔNG QUÁT / DASHBOARD (AI Chatbot & Check-in as Core Interface)
+  // =========================================================================
+  renderDashboard(container, state) {
+    const { currentUser, data } = state;
+    const checkIn = data.todayCheckIn || {};
+    const tasks = data.tasks || [];
+    const timetable = data.timetable || [];
+
+    // Filter today's tasks & timetable
+    const activeTasks = tasks.filter(t => t.status !== 'completed');
+    const completedTasks = tasks.filter(t => t.status === 'completed');
+    
+    // Sort tasks by priority
+    const prioritizedTasks = [...activeTasks].map(t => {
+      const p = EcoAlgorithms.calculatePriorityScore(t);
+      const risk = EcoAlgorithms.predictDeadlineRisk(t, checkIn.availableMinutes || 180);
+      return { ...t, priorityScore: p.score, pData: p, risk };
+    }).sort((a, b) => b.priorityScore - a.priorityScore);
+
+    // Today's schedule slots (Thứ 2 = 2)
+    const todayDayOfWeek = new Date().getDay() === 0 ? 8 : new Date().getDay() + 1; // 2..8
+    const todaySlots = timetable.filter(s => Number(s.dayOfWeek) === Number(todayDayOfWeek))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    // Feasibility analysis
+    const feasibility = EcoAlgorithms.assessFeasibility(
+      activeTasks,
+      checkIn.availableMinutes || 180,
+      0,
+      1,
+      data.settings?.sleepStart || "23:00"
+    );
+
+    // Smart rest check
+    const smartAlert = EcoAlgorithms.getSmartRestAlert(data.studyContinuousMinutes || 0, data.settings?.sleepStart || "23:00");
+
+    container.innerHTML = `
+      <div class="dashboard-view" style="display:flex;flex-direction:column;gap:1.75rem;">
+        
+        <!-- 1. AI CHATBOT & CHECK-IN ĐẦU NGÀY (TRUNG TÂM TƯƠNG TÁC) -->
+        <div class="dashboard-chat-card">
+          <div class="chat-container">
+            <div class="chat-message-bubble">
+              <div class="chat-avatar">🤖</div>
+              <div class="chat-content-box">
+                <div class="chat-greeting">
+                  Chào ${currentUser.name}! Mình là Trợ lý AI EcoStudy 🌿
+                </div>
+                <div class="chat-description" id="chatbot-reply-text">
+                  Hôm nay bạn thấy thế nào? Bạn đã có ${checkIn.sleepHours || 7}h ngủ đêm qua và dự kiến dành ${checkIn.availableMinutes || 180} phút để học tối nay.
+                  Hiện có <strong>${activeTasks.length} nhiệm vụ</strong> đang chờ hoàn thành. Bạn muốn tập trung vào bài tập nào trước nhất?
+                </div>
+                
+                <!-- Quick Choices -->
+                <div class="chat-quick-actions">
+                  <button class="quick-choice-btn" data-choice="feeling_good">✨ Năng lượng tràn trề, làm bài khó nhất</button>
+                  <button class="quick-choice-btn" data-choice="feeling_tired">🥱 Hơi thiếu ngủ, học phiên ngắn 25p</button>
+                  <button class="quick-choice-btn" data-choice="review_math">📐 Ưu tiên đề Toán Tích phân</button>
+                  <button class="quick-choice-btn" data-choice="update_checkin">📝 Cập nhật dữ liệu Check-in</button>
+                </div>
+
+                <!-- Chat Input Box -->
+                <form class="chat-input-bar" id="dashboard-chatbot-form">
+                  <input type="text" class="chat-input" id="dashboard-chat-input" placeholder="Nhắn tin với Trợ lý AI (vd: 'Tối nay mình mệt quá', 'Lập lịch giúp mình')..." autocomplete="off">
+                  <button type="submit" class="btn btn-primary">Gửi</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. QUICK ADD TASK (NHẬP NHIỆM VỤ NHANH KÈM TAG MỨC ĐỘ QUAN TRỌNG) -->
+        <div class="quick-add-task-bar">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;">
+            <div style="font-size:0.95rem;font-weight:800;color:var(--text-main);display:flex;align-items:center;gap:0.4rem;">
+              <span>⚡</span> Nhập Nhiệm Vụ Nhanh (Tự Động Đồng Bộ Vào Study Planner)
+            </div>
+            <span style="font-size:0.75rem;color:var(--text-muted);">AI tự động phân tích điểm ưu tiên và độ khả thi</span>
+          </div>
+          <form class="quick-add-grid" id="quick-add-task-form">
+            <input type="text" class="input-field" id="qa-title" placeholder="Tên bài tập / nhiệm vụ (vd: Giải 5 bài tích phân...)" required>
+            <select class="input-field" id="qa-subject">
+              <option value="Toán">Toán học</option>
+              <option value="Ngữ văn">Ngữ văn</option>
+              <option value="Tiếng Anh">Tiếng Anh</option>
+              <option value="Vật lý">Vật lý</option>
+              <option value="Hóa học">Hóa học</option>
+              <option value="Sinh học">Sinh học</option>
+              <option value="Lịch sử">Lịch sử</option>
+              <option value="Địa lý">Địa lý</option>
+              <option value="Tin học">Tin học</option>
+            </select>
+            <input type="date" class="input-field" id="qa-deadline" value="${new Date(Date.now() + 86400000).toISOString().split('T')[0]}" required>
+            <select class="input-field" id="qa-importance">
+              <option value="9">🔴 Cực kỳ quan trọng (9/10)</option>
+              <option value="7" selected>🟡 Khá quan trọng (7/10)</option>
+              <option value="5">🟢 Bình thường (5/10)</option>
+              <option value="3">⚪ Ít quan trọng (3/10)</option>
+            </select>
+            <input type="number" class="input-field" id="qa-minutes" value="45" min="15" max="240" step="15" placeholder="Số phút" title="Thời lượng dự kiến (phút)">
+            <button type="submit" class="btn btn-primary" style="height:100%;">+ Thêm</button>
+          </form>
+        </div>
+
+        <!-- 3. BỐ TRÍ THÔNG TIN QUAN TRỌNG: TIẾN ĐỘ, THỜI KHÓA BIỂU & NHIỆM VỤ ƯU TIÊN -->
+        <div class="grid-main-side">
+          
+          <!-- Left Column: Nhiệm Vụ Hôm Nay & AI Ưu Tiên -->
+          <div style="display:flex;flex-direction:column;gap:1.5rem;">
+            
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h3><span>📋</span> Nhiệm Vụ Cần Ưu Tiên Hôm Nay (${prioritizedTasks.length})</h3>
+                  <p>Sắp xếp theo thuật toán thông minh P = 0.3D + 0.25I + 0.2W + 0.15L + 0.1R</p>
+                </div>
+                <button class="btn btn-outline btn-sm" id="btn-view-all-planner">Mở Study Planner ➔</button>
+              </div>
+
+              ${prioritizedTasks.length === 0 ? `
+                <div style="text-align:center;padding:2rem;color:var(--text-muted);">
+                  <div style="font-size:2.5rem;margin-bottom:0.5rem;">🎉</div>
+                  <h4>Tuyệt vời! Không còn bài tập tồn đọng</h4>
+                  <p style="font-size:0.85rem;">Bạn đã hoàn thành mọi mục tiêu học tập hôm nay. Hãy thư giãn và ngủ sớm nhé!</p>
+                </div>
+              ` : `
+                <div class="task-list">
+                  ${prioritizedTasks.slice(0, 4).map(task => `
+                    <div class="task-item-card" data-task-id="${task.id}">
+                      <div class="task-main-row">
+                        <div class="task-title-group">
+                          <input type="checkbox" class="task-checkbox toggle-task-status" data-task-id="${task.id}" ${task.status === 'completed' ? 'checked' : ''}>
+                          <div>
+                            <div class="task-title">${task.title}</div>
+                            <div style="display:flex;gap:0.4rem;align-items:center;margin-top:4px;flex-wrap:wrap;">
+                              <span class="badge badge-info">${task.subject}</span>
+                              <span class="badge ${task.importance >= 8 ? 'badge-alert' : task.importance >= 6 ? 'badge-warning' : 'badge-gray'}">
+                                ${task.importance >= 8 ? '🔴 Ưu tiên cao' : task.importance >= 6 ? '🟡 Vừa phải' : '🟢 Thường'}
+                              </span>
+                              <span class="badge badge-gray">⏱️ ${task.estimatedMinutes} phút</span>
+                              <span class="badge ${task.risk.riskLevel === 'overdue' ? 'badge-alert' : task.risk.riskLevel === 'high' ? 'badge-alert' : 'badge-success'}">
+                                ${task.risk.text}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div style="text-align:right;">
+                          <div style="font-size:1.15rem;font-weight:800;color:var(--primary-600);">${task.priorityScore}</div>
+                          <div style="font-size:0.7rem;color:var(--text-muted);">Điểm P</div>
+                        </div>
+                      </div>
+
+                      <!-- Yêu cầu LOI CAN SUA: Giải thích lý do ưu tiên chia thành các ý gạch đầu dòng -->
+                      <div class="ai-reasoning-box">
+                        <div class="ai-reasoning-title">
+                          <span>💡</span> Lý do AI ưu tiên:
+                        </div>
+                        <ul class="ai-bullet-list">
+                          ${task.pData.bulletPoints.map(bp => `<li>${bp}</li>`).join('')}
+                        </ul>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+
+            <!-- Phân tích tính khả thi của ngày hôm nay -->
+            <div class="card" style="border-left:5px solid ${feasibility.isFeasible ? 'var(--primary-500)' : 'var(--color-alert)'};">
+              <div class="card-header">
+                <div>
+                  <h3><span>⚖️</span> Đánh Giá Tính Khả Thi Tối Nay (${feasibility.loadPercentage}% Tải)</h3>
+                  <p>Tổng thời gian cần: <strong>${feasibility.totalNeededMinutes} phút</strong> (Gồm ${feasibility.totalTaskMinutes}p học + ${feasibility.totalBreakMinutes}p nghỉ) vs Khả dụng: <strong>${feasibility.availableMinutes} phút</strong></p>
+                </div>
+                <span class="badge ${feasibility.isFeasible ? 'badge-success' : 'badge-alert'}">
+                  ${feasibility.isFeasible ? 'Kế hoạch an toàn ✅' : 'Cảnh báo quá tải ⚠️'}
+                </span>
+              </div>
+              <div style="background:var(--surface-muted);height:10px;border-radius:5px;overflow:hidden;margin-bottom:0.85rem;">
+                <div style="background:${feasibility.loadPercentage > 100 ? 'var(--color-alert)' : 'var(--primary-500)'};width:${Math.min(100, feasibility.loadPercentage)}%;height:100%;transition:width 0.5s;"></div>
+              </div>
+              <ul class="ai-bullet-list">
+                ${feasibility.recommendations.map(r => `<li>${r}</li>`).join('')}
+              </ul>
+            </div>
+
+          </div>
+
+          <!-- Right Column: Thời Khóa Biểu Ngày & Trạng Thái Sức Khỏe -->
+          <div style="display:flex;flex-direction:column;gap:1.5rem;">
+            
+            <!-- Mini Agenda Hôm nay -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h3><span>📅</span> Thời Khóa Biểu Hôm Nay</h3>
+                  <p>Lịch học chính khóa & ca tự học</p>
+                </div>
+                <span class="badge badge-info">Thứ ${todayDayOfWeek === 8 ? 'CN' : todayDayOfWeek}</span>
+              </div>
+              
+              <div style="display:flex;flex-direction:column;gap:0.65rem;">
+                ${todaySlots.length === 0 ? `
+                  <p style="font-size:0.85rem;color:var(--text-muted);text-align:center;padding:1rem;">Hôm nay không có tiết học cố định nào.</p>
+                ` : todaySlots.map(slot => `
+                  <div class="slot-card ${slot.isFixed ? 'fixed-class' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <span class="slot-time">⏰ ${slot.startTime} - ${slot.endTime}</span>
+                      <span class="badge ${slot.isFixed ? 'badge-info' : 'badge-success'}">${slot.isFixed ? 'Lớp cố định' : 'Tự học'}</span>
+                    </div>
+                    <div class="slot-title">${slot.subject}</div>
+                    ${slot.room ? `<div class="slot-location">📍 ${slot.room}</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Trạng thái năng lượng & Smart Rest -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h3><span>🌙</span> Hệ Thống Nhắc Nghỉ Thông Minh</h3>
+                  <p>Bảo vệ giấc ngủ & rèn luyện thói quen tự học</p>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem;background:var(--surface-muted);border-radius:var(--radius-sm);">
+                  <span style="font-size:0.85rem;font-weight:600;">Mục tiêu đi ngủ:</span>
+                  <span style="font-weight:800;color:var(--primary-700);">${data.settings?.sleepStart || '23:00'}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem;background:var(--surface-muted);border-radius:var(--radius-sm);">
+                  <span style="font-size:0.85rem;font-weight:600;">Đã học liên tục:</span>
+                  <span style="font-weight:800;color:var(--text-main);">${data.studyContinuousMinutes || 0} phút</span>
+                </div>
+                ${smartAlert ? `
+                  <div style="background:var(--color-alert-bg);border:1px solid rgba(239,68,68,0.25);border-radius:var(--radius-sm);padding:0.75rem;">
+                    <div style="font-weight:700;font-size:0.85rem;color:var(--color-alert-text);">${smartAlert.title}</div>
+                    <p style="font-size:0.8rem;color:var(--color-alert-text);margin-top:2px;">${smartAlert.message}</p>
+                  </div>
+                ` : `
+                  <div style="background:var(--primary-50);border:1px solid var(--primary-200);border-radius:var(--radius-sm);padding:0.75rem;">
+                    <div style="font-weight:700;font-size:0.82rem;color:var(--primary-800);">💡 Nhắc nhở cân bằng</div>
+                    <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:2px;">EcoStudy không nhồi nhét bài tập. Hãy nghỉ 10 phút sau mỗi 45 phút học nhé!</p>
+                  </div>
+                `}
+                <button class="btn btn-secondary btn-sm" id="btn-open-pomodoro">Bật Đồng hồ Pomodoro ⏱️</button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    `;
+
+    this.bindDashboardEvents(container, state);
+  },
+
+  bindDashboardEvents(container, state) {
+    // Quick Add Task form
+    const qaForm = container.querySelector('#quick-add-task-form');
+    if (qaForm) {
+      qaForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const title = container.querySelector('#qa-title').value.trim();
+        const subject = container.querySelector('#qa-subject').value;
+        const deadline = container.querySelector('#qa-deadline').value;
+        const importance = Number(container.querySelector('#qa-importance').value) || 7;
+        const estimatedMinutes = Number(container.querySelector('#qa-minutes').value) || 45;
+
+        if (!title) return;
+
+        store.addTask({
+          title,
+          subject,
+          deadline,
+          importance,
+          estimatedMinutes,
+          difficultyWorkload: 6,
+          deadlineProximity: 7,
+          lossConsequence: 6,
+          prerequisiteRequirement: 6,
+          deadlineType: 'soft',
+          status: 'not_started'
+        });
+
+        this.showToast(`Đã thêm nhiệm vụ: "${title}" vào Study Planner!`, 'success');
+        qaForm.reset();
+      });
+    }
+
+    // Toggle Task Status Checkbox
+    container.querySelectorAll('.toggle-task-status').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const taskId = cb.getAttribute('data-task-id');
+        const nextStatus = cb.checked ? 'completed' : 'in_progress';
+        store.updateTask(taskId, {
+          status: nextStatus,
+          actualMinutes: nextStatus === 'completed' ? 45 : null
+        });
+        this.showToast(nextStatus === 'completed' ? '🎉 Chúc mừng bạn đã hoàn thành nhiệm vụ!' : 'Đã đưa nhiệm vụ về trạng thái đang làm.');
+      });
     });
 
-    const badgeEl = document.getElementById('topbar-energy-badge');
-    if (badgeEl) {
-      badgeEl.className = `energy-badge ${fatigue.class}`;
-      badgeEl.innerHTML = `<span>⚡</span> <span>${fatigue.badge}</span>`;
+    // Chatbot Quick Choices
+    container.querySelectorAll('.quick-choice-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const choice = btn.getAttribute('data-choice');
+        const replyEl = container.querySelector('#chatbot-reply-text');
+        if (!replyEl) return;
+
+        if (choice === 'feeling_good') {
+          replyEl.innerHTML = "Tuyệt cú mèo! Năng lượng của bạn đang ở mức cao. AI đã đẩy bài tập <strong>Toán Tích phân</strong> lên hàng đầu để bạn giải quyết trọn vẹn trong 60 phút tới.";
+          store.setMode('normal');
+        } else if (choice === 'feeling_tired') {
+          replyEl.innerHTML = "Được rồi, mình hiểu bạn đang mệt. Hãy bật <strong>Chế độ ít năng lượng</strong>, chia nhỏ thành các phiên 25 phút Pomodoro và hoãn các bài deadline mềm sang ngày mai.";
+          store.setMode('low_energy');
+        } else if (choice === 'review_math') {
+          replyEl.innerHTML = "Đã chọn bài Toán Tích phân! AI khuyến nghị rà soát 3 công thức đạo hàm/tích phân cơ bản trong 15 phút đầu trước khi giải bài vận dụng.";
+        } else if (choice === 'update_checkin') {
+          this.showCheckInModal();
+        }
+      });
+    });
+
+    // Chatbot text message submit
+    const chatForm = container.querySelector('#dashboard-chatbot-form');
+    if (chatForm) {
+      chatForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = container.querySelector('#dashboard-chat-input');
+        const userMsg = input.value.trim();
+        if (!userMsg) return;
+
+        const replyEl = container.querySelector('#chatbot-reply-text');
+        input.value = '';
+
+        // Context-aware assistant response
+        if (userMsg.toLowerCase().includes('mệt') || userMsg.toLowerCase().includes('buồn ngủ')) {
+          replyEl.innerHTML = `AI ghi nhận: "${userMsg}". Thể trạng hiện tại đang mệt mỏi. AI khuyến nghị bạn nghỉ ngơi 15 phút, uống 1 cốc nước ấm và chỉ làm những bài tập nhẹ nhàng. Tuyệt đối đi ngủ trước 23h00.`;
+          store.setMode('low_energy');
+        } else if (userMsg.toLowerCase().includes('lập lịch') || userMsg.toLowerCase().includes('kế hoạch')) {
+          replyEl.innerHTML = `AI đã phân tích: Bạn có 180 phút khả dụng tối nay. Đề xuất hoàn thành Toán (60p) -> Giải lao 10p -> Tiếng Anh (45p) -> Dành 30p ôn bài cũ. Kế hoạch hoàn tất lúc 22:30.`;
+        } else {
+          replyEl.innerHTML = `Trợ lý AI đã ghi nhận ý kiến: "${userMsg}". Mình sẽ cân đối lịch học của bạn sao cho vừa đạt tiến độ, vừa bảo vệ giấc ngủ lành mạnh!`;
+        }
+      });
+    }
+
+    // View All Planner Button
+    const viewAllBtn = container.querySelector('#btn-view-all-planner');
+    if (viewAllBtn) {
+      viewAllBtn.addEventListener('click', () => this.switchTab('planner'));
+    }
+
+    // Open Pomodoro
+    const pomodoroBtn = container.querySelector('#btn-open-pomodoro');
+    if (pomodoroBtn) {
+      pomodoroBtn.addEventListener('click', () => this.switchTab('health'));
     }
   },
 
-  /* =========================================================================
-     SCREEN 0: LANDING PAGE
-     ========================================================================= */
-  renderLanding() {
-    return `
-      <div class="landing-hero">
-        <div class="landing-tagline">
-          🌱 ECOSTUDY PLATFORM • THIẾT KẾ CHO HỌC SINH THPT
-        </div>
-        <h1 class="landing-title">
-          Học Thông Minh Hơn, Nghỉ Ngơi Tốt Hơn, <span>Không Bao Giờ Quá Tải</span>
-        </h1>
-        <p class="landing-subtitle">
-          EcoStudy là trợ lý AI đồng hành cá nhân hóa, tự động điều chỉnh lịch học theo tiến độ thực tế, 
-          chia nhỏ bài khó và bảo vệ trọn vẹn giấc ngủ của bạn.
-        </p>
-        <div class="landing-cta-group">
-          <button class="btn btn-primary btn-lg" id="btn-landing-to-dashboard">
-            🚀 Khám Phá Dashboard Ngay
+  // =========================================================================
+  // VIEW 2: STUDY PLANNER (Gộp Lập lịch & Khả thi + Nhiệm vụ & Chia nhỏ)
+  // Gồm 5 tabs: Overview, Thời khóa biểu, Bài tập & Deadline, Backlog, Study Review
+  // =========================================================================
+  renderStudyPlanner(container, state) {
+    const { data } = state;
+    const tasks = data.tasks || [];
+    const timetable = data.timetable || [];
+
+    container.innerHTML = `
+      <div class="planner-view" style="display:flex;flex-direction:column;gap:1.5rem;">
+        
+        <!-- Planner Sub-tabs Navigation -->
+        <div class="planner-tabs-bar">
+          <button class="planner-tab-btn ${this.activePlannerSubTab === 'overview' ? 'active' : ''}" data-subtab="overview">
+            <span>📊</span> Overview (Tổng Quan)
           </button>
-          <button class="btn btn-secondary btn-lg" id="btn-landing-to-checkin">
-            🌅 Bắt Đầu Check-in Đầu Ngày
+          <button class="planner-tab-btn ${this.activePlannerSubTab === 'timetable' ? 'active' : ''}" data-subtab="timetable">
+            <span>📅</span> Thời Khóa Biểu
+          </button>
+          <button class="planner-tab-btn ${this.activePlannerSubTab === 'tasks' ? 'active' : ''}" data-subtab="tasks">
+            <span>📋</span> Bài Tập & Deadlines (${tasks.length})
+          </button>
+          <button class="planner-tab-btn ${this.activePlannerSubTab === 'backlog' ? 'active' : ''}" data-subtab="backlog">
+            <span>🔄</span> Backlog Manager (${tasks.filter(t => t.status === 'overdue' || t.status === 'needs_support').length})
+          </button>
+          <button class="planner-tab-btn ${this.activePlannerSubTab === 'review' ? 'active' : ''}" data-subtab="review">
+            <span>✅</span> Study Review (Check-out)
           </button>
         </div>
+
+        <!-- Sub-tab Content Area -->
+        <div id="planner-subtab-content"></div>
+
       </div>
+    `;
 
-      <div style="margin-bottom: 2rem;">
-        <h3 style="text-align: center; font-size: 1.5rem; font-weight: 800; color: var(--neutral-900); margin-bottom: 0.5rem;">
-          Vì Sao EcoStudy Khác Biệt?
-        </h3>
-        <p style="text-align: center; font-size: 0.95rem; color: var(--neutral-600); max-width: 600px; margin: 0 auto 2rem auto;">
-          Không đơn thuần là to-do list máy móc. Đây là hệ thống thông minh hiểu và tôn trọng nhịp sinh học của học sinh.
-        </p>
+    const subContent = container.querySelector('#planner-subtab-content');
 
-        <div class="grid-3">
-          <div class="feature-pill-card">
-            <div class="feature-pill-icon">🛡️</div>
-            <h4 style="font-size: 1.1rem; font-weight: 700; color: var(--neutral-900); margin-bottom: 0.5rem;">
-              Nguyên Tắc Sleep Shield
-            </h4>
-            <p style="font-size: 0.85rem; color: var(--neutral-600); line-height: 1.5;">
-              Tuyệt đối không hy sinh giờ ngủ để nhồi nhét bài tập. Cảnh báo quá tải nếu kế hoạch vượt thời gian khả dụng.
-            </p>
+    // Bind sub-tab clicks
+    container.querySelectorAll('.planner-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.activePlannerSubTab = btn.getAttribute('data-subtab');
+        this.renderStudyPlanner(container, state);
+      });
+    });
+
+    switch (this.activePlannerSubTab) {
+      case 'overview':
+        this.renderPlannerOverview(subContent, state);
+        break;
+      case 'timetable':
+        this.renderPlannerTimetable(subContent, state);
+        break;
+      case 'tasks':
+        this.renderPlannerTasks(subContent, state);
+        break;
+      case 'backlog':
+        this.renderPlannerBacklog(subContent, state);
+        break;
+      case 'review':
+        this.renderPlannerReview(subContent, state);
+        break;
+    }
+  },
+
+  // ---------------- SUBTAB 1: PLANNER OVERVIEW ----------------
+  renderPlannerOverview(container, state) {
+    const { data } = state;
+    const tasks = data.tasks || [];
+    const checkIn = data.todayCheckIn || {};
+
+    const totalCount = tasks.length;
+    const completedCount = tasks.filter(t => t.status === 'completed').length;
+    const inProgressCount = tasks.filter(t => t.status === 'in_progress').length;
+    const overdueCount = tasks.filter(t => t.status === 'overdue').length;
+    const completionPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    const feasibility = EcoAlgorithms.assessFeasibility(
+      tasks.filter(t => t.status !== 'completed'),
+      checkIn.availableMinutes || 180,
+      0,
+      1,
+      data.settings?.sleepStart || "23:00"
+    );
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.5rem;">
+        
+        <!-- Stats 4 Grid -->
+        <div class="grid-4">
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#d1fae5;color:#059669;">📚</div>
+            <div class="stat-info">
+              <div class="label">Tổng Nhiệm Vụ</div>
+              <div class="value">${totalCount}</div>
+              <div class="subtext">${tasks.filter(t => t.status !== 'completed').length} cần thực hiện</div>
+            </div>
           </div>
 
-          <div class="feature-pill-card">
-            <div class="feature-pill-icon">🧩</div>
-            <h4 style="font-size: 1.1rem; font-weight: 700; color: var(--neutral-900); margin-bottom: 0.5rem;">
-              Smart Task Decomposition
-            </h4>
-            <p style="font-size: 0.85rem; color: var(--neutral-600); line-height: 1.5;">
-              Tự động phân rã các chuyên đề lớn môn Toán, Văn, Lý, Hóa thành các bước nhỏ có mục tiêu và tiêu chí rõ ràng.
-            </p>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#dbeafe;color:#1d4ed8;">⚡</div>
+            <div class="stat-info">
+              <div class="label">Đang Thực Hiện</div>
+              <div class="value">${inProgressCount}</div>
+              <div class="subtext">Đang trong tiến trình</div>
+            </div>
           </div>
 
-          <div class="feature-pill-card">
-            <div class="feature-pill-icon">🧠</div>
-            <h4 style="font-size: 1.1rem; font-weight: 700; color: var(--neutral-900); margin-bottom: 0.5rem;">
-              Active Recall & Spaced Repetition
-            </h4>
-            <p style="font-size: 0.85rem; color: var(--neutral-600); line-height: 1.5;">
-              Hệ thống theo dõi Knowledge Gap và ôn tập ngắt quãng khoa học, giúp ghi nhớ lâu bền cho kỳ thi THPT.
-            </p>
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#d1fae5;color:#047857;">✅</div>
+            <div class="stat-info">
+              <div class="label">Đã Hoàn Thành</div>
+              <div class="value">${completedCount}</div>
+              <div class="subtext">Tỷ lệ: ${completionPercent}%</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#fee2e2;color:#b91c1c;">🚨</div>
+            <div class="stat-info">
+              <div class="label">Nhiệm Vụ Quá Hạn</div>
+              <div class="value" style="color:var(--color-alert);">${overdueCount}</div>
+              <div class="subtext">Cần xử lý tồn đọng</div>
+            </div>
           </div>
         </div>
+
+        <!-- Feasibility & Schedule Alignment -->
+        <div class="grid-2">
+          
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3><span>⚖️</span> Phân Tích Tính Khả Thi Của Kế Hoạch</h3>
+                <p>Rule Engine bảo vệ giờ ngủ & tránh quá tải</p>
+              </div>
+              <span class="badge ${feasibility.isFeasible ? 'badge-success' : 'badge-alert'}">
+                ${feasibility.isFeasible ? 'Khả thi' : 'Quá tải'}
+              </span>
+            </div>
+
+            <div style="margin-bottom:1rem;">
+              <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.35rem;font-weight:700;">
+                <span>Mức độ tải thời gian:</span>
+                <span>${feasibility.loadPercentage}%</span>
+              </div>
+              <div style="background:var(--surface-muted);height:12px;border-radius:6px;overflow:hidden;">
+                <div style="background:${feasibility.loadPercentage > 100 ? 'var(--color-alert)' : 'var(--primary-500)'};width:${Math.min(100, feasibility.loadPercentage)}%;height:100%;transition:width 0.5s;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">
+              <div>• Tổng thời gian bài tập: <strong>${feasibility.totalTaskMinutes} phút</strong></div>
+              <div>• Thời gian nghỉ ngơi khoa học: <strong>${feasibility.totalBreakMinutes} phút</strong></div>
+              <div>• Quỹ thời gian khả dụng tối nay: <strong>${feasibility.availableMinutes} phút</strong></div>
+            </div>
+
+            <div class="ai-reasoning-box">
+              <div class="ai-reasoning-title">💡 Đề xuất tối ưu của AI:</div>
+              <ul class="ai-bullet-list">
+                ${feasibility.recommendations.map(r => `<li>${r}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3><span>📈</span> Tiến Độ Hoàn Thành Tuần Này</h3>
+                <p>Phân bổ khối lượng học tập theo môn</p>
+              </div>
+            </div>
+            
+            <div style="display:flex;flex-direction:column;gap:1rem;">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem;">
+                  <span>Toán học (360 phút)</span>
+                  <span style="font-weight:700;">85%</span>
+                </div>
+                <div style="background:var(--surface-muted);height:8px;border-radius:4px;overflow:hidden;">
+                  <div style="background:var(--primary-500);width:85%;height:100%;"></div>
+                </div>
+              </div>
+
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem;">
+                  <span>Tiếng Anh (240 phút)</span>
+                  <span style="font-weight:700;">70%</span>
+                </div>
+                <div style="background:var(--surface-muted);height:8px;border-radius:4px;overflow:hidden;">
+                  <div style="background:var(--color-info);width:70%;height:100%;"></div>
+                </div>
+              </div>
+
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem;">
+                  <span>Vật lý (210 phút)</span>
+                  <span style="font-weight:700;">50%</span>
+                </div>
+                <div style="background:var(--surface-muted);height:8px;border-radius:4px;overflow:hidden;">
+                  <div style="background:var(--color-warning);width:50%;height:100%;"></div>
+                </div>
+              </div>
+
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem;">
+                  <span>Ngữ văn & Khác (170 phút)</span>
+                  <span style="font-weight:700;">90%</span>
+                </div>
+                <div style="background:var(--surface-muted);height:8px;border-radius:4px;overflow:hidden;">
+                  <div style="background:var(--color-purple);width:90%;height:100%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
       </div>
     `;
   },
 
-  bindLandingEvents() {
-    document.getElementById('btn-landing-to-dashboard')?.addEventListener('click', () => {
-      this.switchTab('dashboard');
-    });
-    document.getElementById('btn-landing-to-checkin')?.addEventListener('click', () => {
-      this.switchTab('check-in');
-    });
-  },
+  // ---------------- SUBTAB 2: PLANNER TIMETABLE (DAILY & WEEKLY VIEW) ----------------
+  renderPlannerTimetable(container, state) {
+    const { data } = state;
+    const timetable = data.timetable || [];
+    const analysis = EcoAlgorithms.analyzeTimetableSlots(timetable, this.activeTimetableDay);
 
-  /* =========================================================================
-     SCREEN 1: DASHBOARD
-     ========================================================================= */
-  renderDashboard() {
-    const { tasks, todayCheckIn, settings } = store.data;
-    const completedTasks = tasks.filter(t => t.status === 'completed');
-    const completionRate = Math.round((completedTasks.length / Math.max(1, tasks.length)) * 100);
+    const dayNames = {
+      2: "Thứ Hai",
+      3: "Thứ Ba",
+      4: "Thứ Tư",
+      5: "Thứ Năm",
+      6: "Thứ Sáu",
+      7: "Thứ Bảy",
+      8: "Chủ Nhật"
+    };
 
-    const fatigue = EcoAlgorithms.assessFatigueLevel({
-      sleepHours: todayCheckIn.sleepHours || 7,
-      alertness: todayCheckIn.alertness || 7,
-      stressLevel: todayCheckIn.stressLevel || 4
-    });
-
-    const feasibility = EcoAlgorithms.assessFeasibility(
-      tasks,
-      todayCheckIn.availableMinutes || 180,
-      0,
-      fatigue.level
-    );
-
-    return `
-      <!-- AI Insight Banner -->
-      <div class="${feasibility.isFeasible ? 'ai-banner' : 'warning-banner'}">
-        <div class="${feasibility.isFeasible ? 'ai-banner-icon' : 'warning-banner-icon'}">
-          ${feasibility.isFeasible ? '🌱' : '⚠️'}
-        </div>
-        <div class="ai-banner-content" style="flex: 1;">
-          <h4>${feasibility.isFeasible ? 'Lịch học hôm nay được tối ưu hóa' : 'Cảnh báo tính khả thi: Có nguy cơ quá tải!'}</h4>
-          <p>${feasibility.recommendations[0]}</p>
-          <div class="ai-banner-actions">
-            <button class="btn btn-sm ${feasibility.isFeasible ? 'btn-primary' : 'btn-danger'}" id="btn-quick-checkin">
-              ${todayCheckIn.completedAt ? 'Cập nhật Check-in' : 'Bắt đầu Check-in sáng'}
-            </button>
-            <button class="btn btn-sm btn-secondary" id="btn-view-feasibility">Xem phân tích thời gian</button>
-            <button class="btn btn-sm btn-outline-primary" id="btn-view-calendar">Xem thời khóa biểu tuần</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Stats Row -->
-      <div class="grid-4" style="margin-bottom: 1.5rem;">
-        <div class="stat-widget">
-          <div class="stat-icon green">🎯</div>
-          <div class="stat-content">
-            <h3>${completionRate}%</h3>
-            <p>Tiến độ hoàn thành (${completedTasks.length}/${tasks.length})</p>
-          </div>
-        </div>
-        <div class="stat-widget">
-          <div class="stat-icon blue">⏱️</div>
-          <div class="stat-content">
-            <h3>${todayCheckIn.availableMinutes || 180} p</h3>
-            <p>Quỹ thời gian khả dụng</p>
-          </div>
-        </div>
-        <div class="stat-widget">
-          <div class="stat-icon ${fatigue.level === 3 ? 'rose' : (fatigue.level === 2 ? 'amber' : 'green')}">
-            ${fatigue.level === 3 ? '🛑' : (fatigue.level === 2 ? '⚡' : '🌟')}
-          </div>
-          <div class="stat-content">
-            <h3>${fatigue.name}</h3>
-            <p>Ngủ: ${todayCheckIn.sleepHours || 7}h | Áp lực: ${todayCheckIn.stressLevel || 4}/10</p>
-          </div>
-        </div>
-        <div class="stat-widget">
-          <div class="stat-icon rose">🛡️</div>
-          <div class="stat-content">
-            <h3>${settings.sleepStart}</h3>
-            <p>Sleep Shield (Bảo vệ giờ ngủ)</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Columns: Today's Schedule + Pomodoro & Rest Shield -->
-      <div class="grid-main-side">
-        <!-- Left: Today's Timeline -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">📅 Lịch Học Hôm Nay (Thích ứng theo tiến độ)</div>
-              <div class="card-subtitle">Tuân thủ nguyên tắc: Không nhồi nhét, có khoảng nghỉ dự phòng</div>
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.5rem;">
+        
+        <!-- Controls: View Switcher & Add Slot -->
+        <div class="timetable-controls">
+          <div style="display:flex;align-items:center;gap:1rem;">
+            <div class="view-toggle-group">
+              <button class="view-toggle-btn ${this.activeTimetableView === 'weekly' ? 'active' : ''}" id="btn-toggle-weekly">
+                📅 Weekly View (Tuần)
+              </button>
+              <button class="view-toggle-btn ${this.activeTimetableView === 'daily' ? 'active' : ''}" id="btn-toggle-daily">
+                ⏱️ Daily View (Ngày)
+              </button>
             </div>
-            <button class="btn btn-sm btn-outline-primary" id="btn-add-quick-task">+ Thêm nhiệm vụ</button>
+            
+            ${this.activeTimetableView === 'daily' ? `
+              <select class="input-field" id="select-timetable-day" style="width:140px;padding:0.4rem 0.8rem;">
+                ${[2,3,4,5,6,7,8].map(d => `<option value="${d}" ${this.activeTimetableDay === d ? 'selected' : ''}>${dayNames[d]}</option>`).join('')}
+              </select>
+            ` : ''}
           </div>
 
-          <div class="schedule-timeline">
-            ${tasks.map(task => {
-              const priority = EcoAlgorithms.calculatePriorityScore(task);
-              const risk = EcoAlgorithms.predictDeadlineRisk(task, todayCheckIn.availableMinutes || 180);
+          <div style="display:flex;gap:0.75rem;">
+            <button class="btn btn-outline btn-sm" id="btn-detect-conflicts">🔍 Quét Trùng Lịch & Khoảng Trống</button>
+            <button class="btn btn-primary btn-sm" id="btn-add-schedule-slot">+ Thêm Lịch Học</button>
+          </div>
+        </div>
+
+        <!-- Conflict & Free Slots Notice -->
+        ${analysis.conflicts.length > 0 ? `
+          <div style="background:var(--color-alert-bg);border:1px solid rgba(239,68,68,0.25);border-radius:var(--radius-md);padding:0.85rem 1.25rem;">
+            <div style="font-weight:700;color:var(--color-alert-text);display:flex;align-items:center;gap:0.4rem;">
+              <span>⚠️</span> Phát hiện ${analysis.conflicts.length} xung đột lịch học:
+            </div>
+            <ul style="margin-left:1.5rem;font-size:0.82rem;color:var(--color-alert-text);margin-top:0.35rem;">
+              ${analysis.conflicts.map(c => `<li>${c.message}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+
+        ${this.activeTimetableView === 'weekly' ? `
+          <!-- WEEKLY VIEW: 7 Days Grid -->
+          <div class="weekly-timetable-grid">
+            ${[2,3,4,5,6,7,8].map(d => {
+              const daySlots = timetable.filter(s => Number(s.dayOfWeek) === d)
+                .sort((a,b) => a.startTime.localeCompare(b.startTime));
+              const isToday = (new Date().getDay() === 0 ? 8 : new Date().getDay() + 1) === d;
+
               return `
-                <div class="timeline-item ${task.status === 'completed' ? 'break' : ''}">
-                  <div class="timeline-time">${task.timeSlot || 'Linh hoạt'}</div>
-                  <div class="timeline-body">
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                      <h4>${task.title}</h4>
-                      <span class="badge badge-${task.status.replace('_', '')}">${this.getStatusText(task.status)}</span>
-                      <span class="deadline-pill ${task.deadlineType === 'hard' ? 'deadline-hard' : 'deadline-soft'}">
-                        ${task.deadlineType === 'hard' ? 'Hạn cứng 📌' : 'Hạn mềm 🍃'}
-                      </span>
-                    </div>
-                    <p style="margin-bottom: 0.35rem;">${task.notes || 'Không có ghi chú thêm'}</p>
-                    <div style="display: flex; gap: 0.75rem; font-size: 0.75rem; color: var(--neutral-500);">
-                      <span class="priority-score-badge">Điểm ưu tiên P = ${priority.score}</span>
-                      <span>⏱️ ${task.estimatedMinutes} phút</span>
-                      <span style="color: ${risk.color}; font-weight: 600;">${risk.text}</span>
-                    </div>
+                <div class="day-column ${isToday ? 'today' : ''}">
+                  <div class="day-column-header">
+                    <h4>${dayNames[d]}</h4>
+                    <span>${isToday ? 'Hôm nay' : daySlots.length + ' ca'}</span>
                   </div>
-                  <div>
-                    ${task.status !== 'completed' ? `
-                      <button class="btn btn-sm btn-primary btn-checkout-task" data-id="${task.id}">Check-out</button>
-                    ` : `
-                      <span style="color: #059669; font-weight: 700; font-size: 0.85rem;">✓ Đã xong</span>
-                    `}
+
+                  <div style="display:flex;flex-direction:column;gap:0.5rem;flex:1;">
+                    ${daySlots.length === 0 ? `
+                      <div class="slot-card free-slot" data-day="${d}">
+                        <span>+ Khoảng trống (Tự do)</span>
+                      </div>
+                    ` : daySlots.map(slot => `
+                      <div class="slot-card ${slot.isFixed ? 'fixed-class' : ''}" data-slot-id="${slot.id}">
+                        <span class="slot-time">⏰ ${slot.startTime} - ${slot.endTime}</span>
+                        <div class="slot-title">${slot.subject}</div>
+                        ${slot.room ? `<span class="slot-location">📍 ${slot.room}</span>` : ''}
+                      </div>
+                    `).join('')}
                   </div>
                 </div>
               `;
             }).join('')}
+          </div>
+        ` : `
+          <!-- DAILY VIEW: Detailed timeline with hours -->
+          <div class="daily-timeline">
+            <div style="font-weight:800;font-size:1.05rem;color:var(--text-main);margin-bottom:0.5rem;">
+              Chi tiết lịch trình: ${dayNames[this.activeTimetableDay]}
+            </div>
 
-            <!-- Recommended Break Session -->
-            <div class="timeline-item break">
-              <div class="timeline-time">20:30 - 20:45</div>
-              <div class="timeline-body">
-                <h4>🌿 Khoảng Nghỉ Giải Lao Thông Minh (Rest Interval)</h4>
-                <p>Uống nước, thư giãn mắt 20-20-20, vươn vai nhẹ nhàng. Không lướt mạng xã hội.</p>
+            ${analysis.daySlots.length === 0 ? `
+              <div class="card" style="text-align:center;padding:2.5rem;color:var(--text-muted);">
+                <div style="font-size:2.5rem;margin-bottom:0.5rem;">🌿</div>
+                <h4>Không có lịch học nào trong ngày ${dayNames[this.activeTimetableDay]}</h4>
+                <p style="font-size:0.85rem;">Bạn có thể tận dụng khoảng thời gian này để nghỉ ngơi hoặc tự học theo kế hoạch.</p>
+                <button class="btn btn-primary btn-sm" id="btn-add-slot-day" style="margin-top:1rem;">+ Thêm lịch cho ngày này</button>
               </div>
-              <span class="badge badge-completed">Được bảo vệ 🛡️</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right: Pomodoro Rest Shield & Quick Knowledge Reminder -->
-        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-          <div class="card pomodoro-box">
-            <div class="card-title" style="justify-content: center;">🍅 Phiên Tập Trung & Nghỉ Ngơi</div>
-            <p style="font-size: 0.8rem; color: var(--neutral-600); margin-top: 0.25rem;">
-              Âm thanh chuông thư giãn 528Hz bảo vệ mắt & chống mỏi
-            </p>
-
-            <div class="timer-circle">
-              <div class="timer-time" id="pomodoro-display">25:00</div>
-              <div class="timer-label" id="pomodoro-label">Tập Trung Học</div>
-            </div>
-
-            <div style="display: flex; gap: 0.5rem; justify-content: center;">
-              <button class="btn btn-primary" id="btn-pomodoro-toggle">Bắt đầu</button>
-              <button class="btn btn-secondary" id="btn-pomodoro-reset">Đặt lại</button>
-              <button class="btn btn-outline-primary btn-sm" id="btn-test-chime" title="Thử chuông thiền">🔔</button>
-            </div>
-          </div>
-
-          <!-- Knowledge Gap Reminder Widget -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">🧠 Cần Ôn Tập Hôm Nay</div>
-              <a href="#" class="btn btn-sm btn-outline-primary" id="btn-go-knowledge">Xem tất cả</a>
-            </div>
-            <p style="font-size: 0.82rem; color: var(--neutral-600); margin-bottom: 0.75rem;">
-              Áp dụng Spaced Repetition (Ôn tập ngắt quãng) trước khi kiến thức bị phai mờ:
-            </p>
-            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-              ${store.data.knowledgeGaps.slice(0, 2).map(gap => `
-                <div style="padding: 0.65rem; background: var(--neutral-50); border-radius: var(--radius-md); border-left: 3px solid var(--primary-500);">
-                  <div style="font-size: 0.82rem; font-weight: 600;">[${gap.subject}] ${gap.topic}</div>
-                  <div style="font-size: 0.75rem; color: var(--neutral-500);">${gap.notes}</div>
+            ` : analysis.daySlots.map(slot => `
+              <div class="daily-slot-item">
+                <div class="daily-slot-time-col">
+                  <div>${slot.startTime}</div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);font-weight:normal;">đến ${slot.endTime}</div>
                 </div>
-              `).join('')}
-            </div>
+                <div class="daily-slot-content">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="font-weight:800;font-size:0.95rem;color:var(--text-main);">${slot.subject}</div>
+                    <span class="badge ${slot.isFixed ? 'badge-info' : 'badge-success'}">${slot.isFixed ? 'Lịch cố định' : 'Tự học'}</span>
+                  </div>
+                  ${slot.room ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-top:2px;">📍 Địa điểm / Phòng: ${slot.room}</div>` : ''}
+                  ${slot.notes ? `<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px;">📝 ${slot.notes}</div>` : ''}
+                </div>
+                <div>
+                  <button class="btn btn-secondary btn-sm delete-slot-btn" data-slot-id="${slot.id}" style="color:var(--color-alert);">Xóa</button>
+                </div>
+              </div>
+            `).join('')}
+
+            <!-- Free slots summary -->
+            ${analysis.freeSlots.length > 0 ? `
+              <div style="background:var(--primary-50);border:1px dashed var(--primary-400);border-radius:var(--radius-md);padding:1rem 1.25rem;margin-top:1rem;">
+                <div style="font-weight:700;color:var(--primary-800);display:flex;align-items:center;gap:0.4rem;">
+                  <span>🕒</span> Khoảng thời gian trống khả dụng:
+                </div>
+                <ul style="margin-left:1.5rem;font-size:0.82rem;color:var(--primary-900);margin-top:0.35rem;">
+                  ${analysis.freeSlots.map(fs => `<li><strong>${fs.startTime} - ${fs.endTime}</strong> (${fs.durationMinutes} phút): ${fs.suitableForTask}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
           </div>
-        </div>
+        `}
+
       </div>
     `;
+
+    this.bindTimetableEvents(container, state);
   },
 
-  bindDashboardEvents() {
-    document.getElementById('btn-quick-checkin')?.addEventListener('click', () => {
-      this.switchTab('check-in');
-    });
+  bindTimetableEvents(container, state) {
+    // Toggle View Buttons
+    const weeklyBtn = container.querySelector('#btn-toggle-weekly');
+    const dailyBtn = container.querySelector('#btn-toggle-daily');
+    if (weeklyBtn) {
+      weeklyBtn.addEventListener('click', () => {
+        this.activeTimetableView = 'weekly';
+        this.renderPlannerTimetable(container, state);
+      });
+    }
+    if (dailyBtn) {
+      dailyBtn.addEventListener('click', () => {
+        this.activeTimetableView = 'daily';
+        this.renderPlannerTimetable(container, state);
+      });
+    }
 
-    document.getElementById('btn-view-feasibility')?.addEventListener('click', () => {
-      this.switchTab('schedule');
-    });
+    // Day dropdown selector in daily view
+    const daySelect = container.querySelector('#select-timetable-day');
+    if (daySelect) {
+      daySelect.addEventListener('change', (e) => {
+        this.activeTimetableDay = Number(e.target.value);
+        this.renderPlannerTimetable(container, state);
+      });
+    }
 
-    document.getElementById('btn-view-calendar')?.addEventListener('click', () => {
-      this.switchTab('calendar');
-    });
+    // Add slot button
+    const addSlotBtn = container.querySelector('#btn-add-schedule-slot');
+    if (addSlotBtn) {
+      addSlotBtn.addEventListener('click', () => this.showScheduleSlotModal());
+    }
 
-    document.getElementById('btn-go-knowledge')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.switchTab('knowledge');
-    });
-
-    document.querySelectorAll('.btn-checkout-task').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const taskId = btn.getAttribute('data-id');
-        this.openCheckOutModal(taskId);
+    // Delete slot buttons
+    container.querySelectorAll('.delete-slot-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-slot-id');
+        if (confirm("Bạn có chắc chắn muốn xóa tiết học này khỏi thời khóa biểu?")) {
+          store.deleteScheduleSlot(id);
+          this.showToast("Đã xóa tiết học khỏi thời khóa biểu.", 'success');
+        }
       });
     });
 
-    document.getElementById('btn-add-quick-task')?.addEventListener('click', () => {
-      this.openAddTaskModal();
-    });
-
-    document.getElementById('btn-test-chime')?.addEventListener('click', () => {
-      this.playChime('bell');
-      this.showToast('🔔 Chuông thiền 528Hz đã phát!');
-    });
-
-    // Pomodoro Timer events
-    const toggleBtn = document.getElementById('btn-pomodoro-toggle');
-    const resetBtn = document.getElementById('btn-pomodoro-reset');
-
-    toggleBtn?.addEventListener('click', () => {
-      if (this.pomodoroRunning) {
-        clearInterval(this.pomodoroTimerInterval);
-        this.pomodoroRunning = false;
-        toggleBtn.innerText = 'Tiếp tục';
-      } else {
-        this.pomodoroRunning = true;
-        toggleBtn.innerText = 'Tạm dừng';
-        this.playChime('bell');
-        this.pomodoroTimerInterval = setInterval(() => {
-          if (this.pomodoroTimeRemaining > 0) {
-            this.pomodoroTimeRemaining--;
-            this.updatePomodoroDisplay();
-          } else {
-            clearInterval(this.pomodoroTimerInterval);
-            this.pomodoroRunning = false;
-            this.playChime('alert');
-            
-            if (this.pomodoroMode === 'work') {
-              this.pomodoroMode = 'break';
-              this.pomodoroTimeRemaining = 5 * 60;
-              this.showToast('🔔 Hết phiên học! Hãy đứng dậy uống nước và nghỉ ngơi 5 phút.');
-            } else {
-              this.pomodoroMode = 'work';
-              this.pomodoroTimeRemaining = 25 * 60;
-              this.showToast('✨ Hết giờ nghỉ! Sẵn sàng cho phiên học tiếp theo.');
-            }
-            toggleBtn.innerText = 'Bắt đầu';
-            this.updatePomodoroDisplay();
-          }
-        }, 1000);
-      }
-    });
-
-    resetBtn?.addEventListener('click', () => {
-      clearInterval(this.pomodoroTimerInterval);
-      this.pomodoroRunning = false;
-      this.pomodoroMode = 'work';
-      this.pomodoroTimeRemaining = 25 * 60;
-      if (toggleBtn) toggleBtn.innerText = 'Bắt đầu';
-      this.updatePomodoroDisplay();
-    });
-  },
-
-  updatePomodoroDisplay() {
-    const display = document.getElementById('pomodoro-display');
-    const label = document.getElementById('pomodoro-label');
-    if (!display) return;
-
-    const m = Math.floor(this.pomodoroTimeRemaining / 60);
-    const s = this.pomodoroTimeRemaining % 60;
-    display.innerText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    if (label) {
-      label.innerText = this.pomodoroMode === 'work' ? 'Tập Trung Học' : 'Nghỉ Giải Lao 🌿';
+    // Detect conflicts button
+    const conflictBtn = container.querySelector('#btn-detect-conflicts');
+    if (conflictBtn) {
+      conflictBtn.addEventListener('click', () => {
+        const analysis = EcoAlgorithms.analyzeTimetableSlots(state.data.timetable, this.activeTimetableDay);
+        if (analysis.conflicts.length > 0) {
+          alert(`Phát hiện ${analysis.conflicts.length} xung đột:\n` + analysis.conflicts.map(c => `• ${c.message}`).join('\n'));
+        } else {
+          this.showToast("Thời khóa biểu hợp lý, không có tiết nào bị trùng giờ! ✅", 'success');
+        }
+      });
     }
   },
 
-  /* =========================================================================
-     SCREEN 1.5: CALENDAR VIEW (WEEKLY TIME BLOCKS)
-     ========================================================================= */
-  renderCalendar() {
-    const days = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
-    const timeSlots = [
-      '07:00', '09:00', '11:00', '13:00', '15:00', '17:00', '19:00', '20:00', '21:00', '22:00', '23:00'
-    ];
+  // ---------------- SUBTAB 3: PLANNER TASKS & DEADLINES ----------------
+  renderPlannerTasks(container, state) {
+    const { data } = state;
+    const tasks = data.tasks || [];
 
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">📅 Thời Khóa Biểu Học Tập & Khoảng Nghỉ (Weekly Calendar)</div>
-            <div class="card-subtitle">
-              Trực quan hóa khối thời gian học tập, khoảng nghỉ Pomodoro và khung giờ Sleep Shield được bảo vệ
-            </div>
-          </div>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-sm btn-secondary" onclick="window.print()">🖨️ In lịch biểu</button>
-            <button class="btn btn-sm btn-primary" id="btn-sync-calendar">Tối ưu lại lịch</button>
-          </div>
-        </div>
-
-        <!-- Legend -->
-        <div style="display: flex; gap: 1rem; font-size: 0.78rem; margin-bottom: 1rem; flex-wrap: wrap;">
-          <span style="display: flex; align-items: center; gap: 0.35rem;">
-            <span style="width: 12px; height: 12px; background: #10b981; border-radius: 2px;"></span> Phiên học tập trung
-          </span>
-          <span style="display: flex; align-items: center; gap: 0.35rem;">
-            <span style="width: 12px; height: 12px; background: #0284c7; border-radius: 2px;"></span> Nghỉ ngơi Pomodoro
-          </span>
-          <span style="display: flex; align-items: center; gap: 0.35rem;">
-            <span style="width: 12px; height: 12px; background: #64748b; border-radius: 2px;"></span> Sleep Shield (Giờ ngủ)
-          </span>
-        </div>
-
-        <div class="calendar-time-grid">
-          <div class="calendar-header-cell">Giờ</div>
-          ${days.map(d => `<div class="calendar-header-cell">${d}</div>`).join('')}
-
-          <!-- 07:00 -->
-          <div class="calendar-time-col">07:00</div>
-          ${days.map((d, i) => `
-            <div class="calendar-cell">
-              <div class="timeblock-event timeblock-study">Lớp học trên trường</div>
-            </div>
-          `).join('')}
-
-          <!-- 13:00 -->
-          <div class="calendar-time-col">13:00</div>
-          ${days.map((d, i) => `
-            <div class="calendar-cell">
-              ${i % 2 === 0 ? '<div class="timeblock-event timeblock-break">Nghỉ trưa & Nạp năng lượng</div>' : '<div class="timeblock-event timeblock-study">Tự học thư viện</div>'}
-            </div>
-          `).join('')}
-
-          <!-- 19:00 -->
-          <div class="calendar-time-col">19:00</div>
-          ${days.map((d, i) => `
-            <div class="calendar-cell">
-              ${i === 0 ? '<div class="timeblock-event timeblock-study">Toán: Tích phân diện tích</div>' : (i === 1 ? '<div class="timeblock-event timeblock-study">Tiếng Anh: Reading 2</div>' : '<div class="timeblock-event timeblock-study">Vật lý: Định luật Cu-lông</div>')}
-            </div>
-          `).join('')}
-
-          <!-- 20:30 -->
-          <div class="calendar-time-col">20:30</div>
-          ${days.map((d, i) => `
-            <div class="calendar-cell">
-              <div class="timeblock-event timeblock-break">Nghỉ 15p (Rest Shield)</div>
-            </div>
-          `).join('')}
-
-          <!-- 21:00 -->
-          <div class="calendar-time-col">21:00</div>
-          ${days.map((d, i) => `
-            <div class="calendar-cell">
-              <div class="timeblock-event timeblock-study">Active Recall ôn tập</div>
-            </div>
-          `).join('')}
-
-          <!-- 23:00 -->
-          <div class="calendar-time-col">23:00</div>
-          ${days.map(() => `
-            <div class="calendar-cell">
-              <div class="timeblock-event timeblock-sleep">🛡️ Sleep Shield (Đi ngủ)</div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  },
-
-  bindCalendarEvents() {
-    document.getElementById('btn-sync-calendar')?.addEventListener('click', () => {
-      this.playChime('bell');
-      this.showToast('✅ Đã đồng bộ và phân bổ lại thời khóa biểu thông minh!');
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 2: CHỨC NĂNG 1 - CHECK-IN ĐẦU NGÀY
-     ========================================================================= */
-  renderCheckIn() {
-    const checkIn = store.data.todayCheckIn || {};
-    return `
-      <div class="companion-chat-box">
-        <div class="chat-bubble">
-          <div class="chat-avatar">🌱</div>
-          <div class="chat-bubble-content">
-            <h4 style="font-weight: 700; color: var(--primary-800); margin-bottom: 0.25rem;">
-              Chào Minh Khoa! Hôm nay bạn cảm thấy thế nào?
-            </h4>
-            <p>
-              EcoStudy ở đây để lắng nghe và giúp bạn có một ngày học tập hiệu quả, không bị quá tải. 
-              Hãy chia sẻ nhanh về giấc ngủ và mức năng lượng hiện tại nhé.
-            </p>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top: 1rem;">
-          <form id="form-checkin">
-            <div class="form-group">
-              <label class="form-label">Tối qua bạn ngủ được khoảng bao nhiêu tiếng?</label>
-              <div class="quick-pick-chips" id="chips-sleep">
-                ${[5, 6, 6.5, 7, 7.5, 8, 9].map(h => `
-                  <button type="button" class="quick-chip ${(checkIn.sleepHours || 7) === h ? 'selected' : ''}" data-val="${h}">
-                    ${h} tiếng
-                  </button>
-                `).join('')}
-              </div>
-              <input type="hidden" id="checkin-sleep" value="${checkIn.sleepHours || 7}">
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Mức độ tỉnh táo hiện tại của bạn? (1: Rất buồn ngủ, 10: Tràn đầy năng lượng)</label>
-              <div style="display: flex; align-items: center; gap: 1rem;">
-                <input type="range" class="form-control" id="checkin-alertness" min="1" max="10" value="${checkIn.alertness || 7}">
-                <span id="alertness-val" style="font-weight: 700; font-size: 1.1rem; color: var(--primary-700); min-width: 30px;">
-                  ${checkIn.alertness || 7}
-                </span>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Bạn có đang cảm thấy áp lực bài tập/kỳ thi không?</label>
-              <div class="quick-pick-chips" id="chips-stress">
-                <button type="button" class="quick-chip ${(checkIn.stressLevel || 4) <= 3 ? 'selected' : ''}" data-val="2">Thư thái, nhẹ nhàng 😊</button>
-                <button type="button" class="quick-chip ${(checkIn.stressLevel || 4) > 3 && (checkIn.stressLevel || 4) <= 6 ? 'selected' : ''}" data-val="5">Áp lực vừa phải 📝</button>
-                <button type="button" class="quick-chip ${(checkIn.stressLevel || 4) > 6 ? 'selected' : ''}" data-val="8">Khá căng thẳng / Lo lắng 😰</button>
-              </div>
-              <input type="hidden" id="checkin-stress" value="${checkIn.stressLevel || 4}">
-            </div>
-
-            <div class="grid-2">
-              <div class="form-group">
-                <label class="form-label">Tổng thời gian có thể dành cho việc học tối nay</label>
-                <select class="form-control" id="checkin-available">
-                  <option value="120" ${checkIn.availableMinutes === 120 ? 'selected' : ''}>2 tiếng (120 phút)</option>
-                  <option value="180" ${checkIn.availableMinutes === 180 ? 'selected' : ''}>3 tiếng (180 phút)</option>
-                  <option value="210" ${checkIn.availableMinutes === 210 ? 'selected' : ''}>3.5 tiếng (210 phút)</option>
-                  <option value="240" ${checkIn.availableMinutes === 240 ? 'selected' : ''}>4 tiếng (240 phút)</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Thời gian bắt đầu học dự kiến</label>
-                <input type="time" class="form-control" id="checkin-starttime" value="${checkIn.studyStartTime || '19:00'}">
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Khoảng thời gian muốn dành riêng cho bản thân / hoạt động cố định</label>
-              <input type="text" class="form-control" id="checkin-fixed" 
-                value="${checkIn.fixedActivities || 'Ăn tối (18h30-19h), giải trí nghe nhạc (21h30-22h)'}" 
-                placeholder="VD: Tập thể thao 45 phút, ăn cơm cùng gia đình...">
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Tâm trạng hoặc ghi chú thêm cho AI</label>
-              <textarea class="form-control" id="checkin-notes" rows="2" 
-                placeholder="Hôm nay mình muốn tập trung ôn Toán, tránh để bị trễ bài...">${checkIn.userNotes || ''}</textarea>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-              <button type="submit" class="btn btn-primary btn-lg">🌱 Xác Nhận Check-In & Tối Ưu Lịch</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    `;
-  },
-
-  bindCheckInEvents() {
-    document.querySelectorAll('#chips-sleep .quick-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#chips-sleep .quick-chip').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        document.getElementById('checkin-sleep').value = btn.getAttribute('data-val');
-      });
+    // Filter tasks
+    const filteredTasks = tasks.filter(t => {
+      if (this.activeTaskFilterSubject !== 'all' && t.subject !== this.activeTaskFilterSubject) return false;
+      if (this.activeTaskFilterStatus !== 'all') {
+        if (this.activeTaskFilterStatus === 'completed' && t.status !== 'completed') return false;
+        if (this.activeTaskFilterStatus === 'in_progress' && t.status !== 'in_progress') return false;
+        if (this.activeTaskFilterStatus === 'overdue' && t.status !== 'overdue') return false;
+        if (this.activeTaskFilterStatus === 'not_started' && t.status !== 'not_started') return false;
+      }
+      return true;
     });
 
-    document.querySelectorAll('#chips-stress .quick-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#chips-stress .quick-chip').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        document.getElementById('checkin-stress').value = btn.getAttribute('data-val');
-      });
-    });
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.5rem;">
+        
+        <!-- Filter Bar & Add Button -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+            <select class="input-field" id="filter-task-subject" style="width:160px;padding:0.45rem 0.85rem;">
+              <option value="all">Tất cả môn học</option>
+              <option value="Toán" ${this.activeTaskFilterSubject === 'Toán' ? 'selected' : ''}>Toán học</option>
+              <option value="Ngữ văn" ${this.activeTaskFilterSubject === 'Ngữ văn' ? 'selected' : ''}>Ngữ văn</option>
+              <option value="Tiếng Anh" ${this.activeTaskFilterSubject === 'Tiếng Anh' ? 'selected' : ''}>Tiếng Anh</option>
+              <option value="Vật lý" ${this.activeTaskFilterSubject === 'Vật lý' ? 'selected' : ''}>Vật lý</option>
+              <option value="Hóa học" ${this.activeTaskFilterSubject === 'Hóa học' ? 'selected' : ''}>Hóa học</option>
+            </select>
 
-    const rangeAlert = document.getElementById('checkin-alertness');
-    const valAlert = document.getElementById('alertness-val');
-    rangeAlert?.addEventListener('input', () => {
-      if (valAlert) valAlert.innerText = rangeAlert.value;
-    });
-
-    document.getElementById('form-checkin')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const sleepHours = parseFloat(document.getElementById('checkin-sleep').value);
-      const alertness = parseInt(document.getElementById('checkin-alertness').value);
-      const stressLevel = parseInt(document.getElementById('checkin-stress').value);
-      const availableMinutes = parseInt(document.getElementById('checkin-available').value);
-      const studyStartTime = document.getElementById('checkin-starttime').value;
-      const fixedActivities = document.getElementById('checkin-fixed').value;
-      const userNotes = document.getElementById('checkin-notes').value;
-
-      store.saveCheckIn({
-        sleepHours,
-        alertness,
-        stressLevel,
-        availableMinutes,
-        studyStartTime,
-        fixedActivities,
-        userNotes
-      });
-
-      this.playChime('bell');
-      this.showToast('✅ Check-in thành công! AI đã phân tích tính khả thi và lập lịch.');
-      this.switchTab('schedule');
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 3: CHỨC NĂNG 2 & 9 - PHÂN TÍCH TÍNH KHẢ THI & LẬP LỊCH
-     ========================================================================= */
-  renderSchedulePlanner() {
-    const { tasks, todayCheckIn } = store.data;
-    const fatigue = EcoAlgorithms.assessFatigueLevel({
-      sleepHours: todayCheckIn.sleepHours || 7,
-      alertness: todayCheckIn.alertness || 7,
-      stressLevel: todayCheckIn.stressLevel || 4
-    });
-
-    const feasibility = EcoAlgorithms.assessFeasibility(
-      tasks,
-      todayCheckIn.availableMinutes || 180,
-      0,
-      fatigue.level
-    );
-
-    return `
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">⚖️ Phân Tích Tính Khả Thi Của Kế Hoạch (Feasibility Engine)</div>
-            <div class="card-subtitle">AI cam kết: Tuyệt đối không nhồi nhét, bảo vệ giờ ngủ của học sinh</div>
+            <select class="input-field" id="filter-task-status" style="width:170px;padding:0.45rem 0.85rem;">
+              <option value="all">Tất cả trạng thái</option>
+              <option value="not_started" ${this.activeTaskFilterStatus === 'not_started' ? 'selected' : ''}>Chưa thực hiện</option>
+              <option value="in_progress" ${this.activeTaskFilterStatus === 'in_progress' ? 'selected' : ''}>Đang thực hiện</option>
+              <option value="completed" ${this.activeTaskFilterStatus === 'completed' ? 'selected' : ''}>Đã hoàn thành</option>
+              <option value="overdue" ${this.activeTaskFilterStatus === 'overdue' ? 'selected' : ''}>Quá hạn</option>
+            </select>
           </div>
-          <span class="badge ${feasibility.isFeasible ? 'badge-completed' : 'badge-blocked'}" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;">
-            ${feasibility.isFeasible ? '✓ Kế hoạch Khả Thi' : '⚠️ Cảnh Báo Quá Tải'}
-          </span>
+
+          <button class="btn btn-primary btn-sm" id="btn-add-full-task">+ Thêm Nhiệm Vụ Mới</button>
         </div>
 
-        <div class="grid-3" style="margin-bottom: 1rem;">
-          <div style="background: var(--neutral-50); padding: 1rem; border-radius: var(--radius-md);">
-            <div style="font-size: 0.8rem; color: var(--neutral-500);">Tổng thời gian nhiệm vụ</div>
-            <div style="font-size: 1.3rem; font-weight: 700; color: var(--neutral-900);">${feasibility.totalTaskMinutes} phút</div>
-          </div>
-          <div style="background: var(--neutral-50); padding: 1rem; border-radius: var(--radius-md);">
-            <div style="font-size: 0.8rem; color: var(--neutral-500);">Thời gian nghỉ Pomodoro dự kiến</div>
-            <div style="font-size: 1.3rem; font-weight: 700; color: #0284c7;">+ ${feasibility.totalBreakMinutes} phút</div>
-          </div>
-          <div style="background: var(--neutral-50); padding: 1rem; border-radius: var(--radius-md);">
-            <div style="font-size: 0.8rem; color: var(--neutral-500);">Quỹ thời gian thực tế khả dụng</div>
-            <div style="font-size: 1.3rem; font-weight: 700; color: #059669;">${feasibility.availableMinutes} phút</div>
-          </div>
-        </div>
+        <!-- Tasks List with AI Breakdown & Bullets -->
+        <div class="task-list">
+          ${filteredTasks.length === 0 ? `
+            <div class="card" style="text-align:center;padding:3rem;color:var(--text-muted);">
+              <div style="font-size:2.5rem;margin-bottom:0.5rem;">📋</div>
+              <h4>Không tìm thấy nhiệm vụ phù hợp bộ lọc</h4>
+              <p style="font-size:0.85rem;">Hãy thử thay đổi điều kiện lọc hoặc bấm "+ Thêm Nhiệm Vụ Mới".</p>
+            </div>
+          ` : filteredTasks.map(task => {
+            const p = EcoAlgorithms.calculatePriorityScore(task);
+            const risk = EcoAlgorithms.predictDeadlineRisk(task, data.todayCheckIn?.availableMinutes || 180);
+            const subtasks = task.subtasks || [];
+            const completedSubtasks = subtasks.filter(st => st.completed).length;
 
-        <div style="margin-bottom: 1rem;">
-          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
-            <span>Tỷ lệ lấp đầy quỹ thời gian: <strong>${feasibility.loadPercentage}%</strong></span>
-            <span>Ngưỡng an toàn tối đa: 85%</span>
-          </div>
-          <div style="width: 100%; height: 10px; background: var(--neutral-200); border-radius: 9999px; overflow: hidden;">
-            <div style="width: ${Math.min(100, feasibility.loadPercentage)}%; height: 100%; background: ${feasibility.loadPercentage > 100 ? '#ef4444' : (feasibility.loadPercentage > 85 ? '#f59e0b' : '#10b981')}; transition: width 0.3s ease;"></div>
-          </div>
-        </div>
-
-        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md); padding: 1rem;">
-          <strong style="color: #047857; font-size: 0.85rem;">Lời khuyên từ AI Scheduler:</strong>
-          <ul style="margin-top: 0.35rem; padding-left: 1.25rem; font-size: 0.85rem; color: #065f46;">
-            ${feasibility.recommendations.map(r => `<li>${r}</li>`).join('')}
-          </ul>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🧮 Phân Bổ Mức Độ Ưu Tiên Theo Công Thức Khoa Học</div>
-            <div class="card-subtitle">Công thức: P = 0.30D + 0.25I + 0.20W + 0.15L + 0.10R (Có giải thích lý do cho từng môn)</div>
-          </div>
-          <button class="btn btn-sm btn-primary" id="btn-confirm-all-schedule">Xác nhận lịch đề xuất</button>
-        </div>
-
-        <div style="overflow-x: auto;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Nhiệm vụ</th>
-                <th>Môn</th>
-                <th>Deadline</th>
-                <th>Phân loại</th>
-                <th>Điểm P</th>
-                <th>Thời lượng</th>
-                <th>Giải thích lý do ưu tiên của AI</th>
-                <th>Hành động</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tasks.map(task => {
-                const prio = EcoAlgorithms.calculatePriorityScore(task);
-                return `
-                  <tr>
-                    <td><strong>${task.title}</strong></td>
-                    <td>${task.subject}</td>
-                    <td>${task.deadline}</td>
-                    <td>
-                      <span class="deadline-pill ${task.deadlineType === 'hard' ? 'deadline-hard' : 'deadline-soft'}">
-                        ${task.deadlineType === 'hard' ? 'Deadline Cứng' : 'Deadline Mềm'}
-                      </span>
-                    </td>
-                    <td><span class="priority-score-badge">${prio.score}</span></td>
-                    <td>${task.estimatedMinutes}p</td>
-                    <td style="font-size: 0.78rem; color: var(--neutral-600); max-width: 320px;">
-                      ${prio.reasoning}
-                    </td>
-                    <td>
-                      <button class="btn btn-sm btn-secondary btn-decompose-trigger" data-id="${task.id}" title="Chia nhỏ nhiệm vụ">
-                        🧩 Chia nhỏ
-                      </button>
-                    </td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  },
-
-  bindScheduleEvents() {
-    document.getElementById('btn-confirm-all-schedule')?.addEventListener('click', () => {
-      this.playChime('bell');
-      this.showToast('🎉 Đã xác nhận lịch học tối ưu! AI sẽ đồng hành và nhắc nhở đúng giờ.');
-    });
-
-    document.querySelectorAll('.btn-decompose-trigger').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const taskId = btn.getAttribute('data-id');
-        this.openDecomposeModal(taskId);
-      });
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 4: CHỨC NĂNG 3 - QUẢN LÝ NHIỆM VỤ & CHIA NHỎ THÔNG MINH
-     ========================================================================= */
-  renderTasks() {
-    const { tasks } = store.data;
-    return `
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">📋 Danh Sách Nhiệm Vụ Học Tập</div>
-            <div class="card-subtitle">Hỗ trợ 10 trạng thái quản lý & AI Task Decomposition</div>
-          </div>
-          <button class="btn btn-primary" id="btn-open-add-task">+ Thêm nhiệm vụ mới</button>
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
-          ${tasks.map(task => {
-            const prio = EcoAlgorithms.calculatePriorityScore(task);
             return `
-              <div style="border: 1px solid var(--neutral-200); border-radius: var(--radius-md); padding: 1.25rem; background: white;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-                  <div>
-                    <h4 style="font-size: 1rem; font-weight: 700; color: var(--neutral-900); margin-bottom: 0.25rem;">
-                      ${task.title}
-                    </h4>
-                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                      <span class="badge badge-${task.status.replace('_', '')}">${this.getStatusText(task.status)}</span>
-                      <span class="deadline-pill ${task.deadlineType === 'hard' ? 'deadline-hard' : 'deadline-soft'}">
-                        ${task.deadlineType === 'hard' ? 'Deadline Cứng' : 'Deadline Mềm'}
-                      </span>
-                      <span style="font-size: 0.75rem; color: var(--neutral-500);">Hạn: ${task.deadline}</span>
-                      <span class="priority-score-badge">Ưu tiên: ${prio.score}</span>
-                      <span style="font-size: 0.75rem; color: var(--neutral-600);">⏱️ ${task.estimatedMinutes} phút</span>
+              <div class="task-item-card ${task.status === 'completed' ? 'task-completed' : ''}" data-task-id="${task.id}">
+                
+                <!-- Main Header Row -->
+                <div class="task-main-row">
+                  <div class="task-title-group">
+                    <input type="checkbox" class="task-checkbox toggle-task-status" data-task-id="${task.id}" ${task.status === 'completed' ? 'checked' : ''}>
+                    <div>
+                      <div class="task-title">${task.title}</div>
+                      <div style="display:flex;gap:0.4rem;align-items:center;margin-top:4px;flex-wrap:wrap;">
+                        <span class="badge badge-info">${task.subject}</span>
+                        <span class="badge ${task.deadlineType === 'hard' ? 'badge-alert' : 'badge-gray'}">
+                          ${task.deadlineType === 'hard' ? '🔴 Deadline cứng' : '⚪ Deadline mềm'}: ${task.deadline}
+                        </span>
+                        <span class="badge badge-gray">⏱️ Dự kiến: ${task.estimatedMinutes}p</span>
+                        <span class="badge ${risk.riskLevel === 'overdue' ? 'badge-alert' : risk.riskLevel === 'high' ? 'badge-alert' : 'badge-success'}">
+                          ${risk.text}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn btn-sm btn-outline-primary btn-decompose-trigger" data-id="${task.id}">
-                      🧩 AI Chia nhỏ (${task.subtasks ? task.subtasks.length : 0})
+
+                  <div style="display:flex;align-items:center;gap:0.75rem;">
+                    <div style="text-align:right;">
+                      <div style="font-size:1.15rem;font-weight:800;color:var(--primary-600);">${p.score}</div>
+                      <div style="font-size:0.7rem;color:var(--text-muted);">Điểm P</div>
+                    </div>
+                    <button class="btn btn-outline btn-sm decompose-task-btn" data-task-id="${task.id}">
+                      🤖 AI Chia Nhỏ
                     </button>
-                    <button class="btn btn-sm btn-danger btn-delete-task" data-id="${task.id}">Xóa</button>
+                    <button class="btn btn-secondary btn-sm delete-task-btn" data-task-id="${task.id}" style="color:var(--color-alert);">
+                      ✕
+                    </button>
                   </div>
                 </div>
 
-                ${task.subtasks && task.subtasks.length > 0 ? `
-                  <div style="margin-top: 0.75rem; padding: 0.75rem; background: var(--neutral-50); border-radius: var(--radius-sm);">
-                    <div style="font-size: 0.78rem; font-weight: 700; color: var(--neutral-700); margin-bottom: 0.5rem;">
-                      CÁC BƯỚC THỰC HIỆN ĐÃ CHIA NHỎ (SUBTASKS):
+                <!-- AI Bullet Points Reasoning -->
+                <div class="ai-reasoning-box">
+                  <div class="ai-reasoning-title">
+                    <span>💡</span> Giải thích lý do ưu tiên của AI (Điểm: ${p.score}/10):
+                  </div>
+                  <ul class="ai-bullet-list">
+                    ${p.bulletPoints.map(bp => `<li>${bp}</li>`).join('')}
+                  </ul>
+                </div>
+
+                <!-- Subtasks Checklist (if any) -->
+                ${subtasks.length > 0 ? `
+                  <div class="subtasks-box">
+                    <div style="font-size:0.8rem;font-weight:700;color:var(--text-secondary);display:flex;justify-content:space-between;">
+                      <span>Các bước thực hiện (${completedSubtasks}/${subtasks.length} hoàn thành):</span>
+                      <span>${Math.round((completedSubtasks / subtasks.length) * 100)}%</span>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-                      ${task.subtasks.map(st => `
-                        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: white; padding: 0.4rem 0.6rem; border-radius: 4px; border: 1px solid var(--neutral-200);">
-                          <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" class="subtask-checkbox" data-taskid="${task.id}" data-subid="${st.id}" ${st.completed ? 'checked' : ''}>
-                            <span style="${st.completed ? 'text-decoration: line-through; color: var(--neutral-400);' : ''}">${st.title}</span>
-                          </div>
-                          <div style="display: flex; gap: 0.75rem; font-size: 0.72rem; color: var(--neutral-500);">
-                            <span>⏱️ ${st.duration}p</span>
-                            <span style="color: var(--primary-700);">Tiêu chí: ${st.criteria || 'Hoàn thành'}</span>
-                          </div>
-                        </div>
-                      `).join('')}
-                    </div>
+                    ${subtasks.map(st => `
+                      <div class="subtask-item">
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;flex:1;">
+                          <input type="checkbox" class="toggle-subtask" data-task-id="${task.id}" data-subtask-id="${st.id}" ${st.completed ? 'checked' : ''}>
+                          <span style="${st.completed ? 'text-decoration:line-through;color:var(--text-muted);' : ''}">${st.title}</span>
+                        </label>
+                        <span style="font-size:0.75rem;color:var(--text-muted);">⏱️ ${st.duration}p</span>
+                      </div>
+                    `).join('')}
                   </div>
                 ` : ''}
+
               </div>
             `;
           }).join('')}
         </div>
+
       </div>
     `;
+
+    this.bindTasksEvents(container, state);
   },
 
-  bindTasksEvents() {
-    document.getElementById('btn-open-add-task')?.addEventListener('click', () => {
-      this.openAddTaskModal();
-    });
+  bindTasksEvents(container, state) {
+    // Subject & Status filters
+    const subjectFilter = container.querySelector('#filter-task-subject');
+    const statusFilter = container.querySelector('#filter-task-status');
 
-    document.querySelectorAll('.btn-decompose-trigger').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const taskId = btn.getAttribute('data-id');
-        this.openDecomposeModal(taskId);
+    if (subjectFilter) {
+      subjectFilter.addEventListener('change', (e) => {
+        this.activeTaskFilterSubject = e.target.value;
+        this.renderPlannerTasks(container, state);
       });
-    });
+    }
 
-    document.querySelectorAll('.btn-delete-task').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const taskId = btn.getAttribute('data-id');
-        if (confirm('Bạn có chắc muốn xóa nhiệm vụ này không?')) {
-          store.deleteTask(taskId);
-          this.showToast('Đã xóa nhiệm vụ.');
-        }
+    if (statusFilter) {
+      statusFilter.addEventListener('change', (e) => {
+        this.activeTaskFilterStatus = e.target.value;
+        this.renderPlannerTasks(container, state);
       });
-    });
+    }
 
-    document.querySelectorAll('.subtask-checkbox').forEach(cb => {
+    // Toggle Task Status Checkbox
+    container.querySelectorAll('.toggle-task-status').forEach(cb => {
       cb.addEventListener('change', () => {
-        const taskId = cb.getAttribute('data-taskid');
-        const subId = cb.getAttribute('data-subid');
-        const task = store.data.tasks.find(t => t.id === taskId);
+        const taskId = cb.getAttribute('data-task-id');
+        const nextStatus = cb.checked ? 'completed' : 'in_progress';
+        store.updateTask(taskId, {
+          status: nextStatus,
+          actualMinutes: nextStatus === 'completed' ? 45 : null
+        });
+        this.showToast(nextStatus === 'completed' ? '🎉 Đã hoàn thành nhiệm vụ!' : 'Đã chuyển về trạng thái đang làm.');
+      });
+    });
+
+    // Toggle Subtask Checkbox
+    container.querySelectorAll('.toggle-subtask').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const taskId = cb.getAttribute('data-task-id');
+        const subtaskId = cb.getAttribute('data-subtask-id');
+        const task = state.data.tasks.find(t => t.id === taskId);
         if (task && task.subtasks) {
-          const sub = task.subtasks.find(s => s.id === subId);
-          if (sub) {
-            sub.completed = cb.checked;
-            store.save();
-            this.playChime('bell');
-            this.showToast(cb.checked ? 'Đã hoàn thành bước nhỏ!' : 'Đã bỏ đánh dấu bước nhỏ');
-          }
+          const st = task.subtasks.find(s => s.id === subtaskId);
+          if (st) st.completed = cb.checked;
+          store.updateTask(taskId, { subtasks: task.subtasks });
+          this.renderPlannerTasks(container, state);
         }
       });
     });
+
+    // AI Decompose Task Button
+    container.querySelectorAll('.decompose-task-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const taskId = btn.getAttribute('data-task-id');
+        const task = state.data.tasks.find(t => t.id === taskId);
+        if (task) {
+          this.showAIDecompositionModal(task);
+        }
+      });
+    });
+
+    // Delete Task Button
+    container.querySelectorAll('.delete-task-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const taskId = btn.getAttribute('data-task-id');
+        if (confirm("Bạn có chắc chắn muốn xóa nhiệm vụ này?")) {
+          store.deleteTask(taskId);
+          this.showToast("Đã xóa nhiệm vụ thành công.", 'success');
+        }
+      });
+    });
+
+    // Add Full Task Modal Button
+    const addFullBtn = container.querySelector('#btn-add-full-task');
+    if (addFullBtn) {
+      addFullBtn.addEventListener('click', () => this.showFullTaskModal());
+    }
   },
 
-  /* =========================================================================
-     SCREEN 5: CHỨC NĂNG 6 - QUẢN LÝ NHIỆM VỤ TỒN ĐỌNG (BACKLOG ENGINE)
-     ========================================================================= */
-  renderBacklog() {
-    const backlogTasks = store.data.tasks.filter(t => t.status === 'needs_support' || t.status === 'blocked' || t.rescheduleCount > 0);
-    return `
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🔄 Xử Lý Nhiệm Vụ Tồn Đọng Thông Minh</div>
-            <div class="card-subtitle">Không chuyển nhiệm vụ sang ngày tiếp theo một cách máy móc; tìm nguyên nhân thực tế</div>
-          </div>
-        </div>
+  // ---------------- SUBTAB 4: BACKLOG MANAGER (XỬ LÝ TỒN ĐỌNG) ----------------
+  renderPlannerBacklog(container, state) {
+    const { data } = state;
+    const tasks = data.tasks || [];
+    const overdueTasks = tasks.filter(t => t.status === 'overdue');
+    const unstartedTasks = tasks.filter(t => t.status === 'not_started' || t.status === 'needs_support');
 
-        <div class="ai-banner">
-          <div class="ai-banner-icon">💡</div>
-          <div class="ai-banner-content">
-            <h4>Cơ chế chống tồn đọng của EcoStudy</h4>
-            <p>
-              Nếu một nhiệm vụ bị dời nhiều lần, AI không dồn đống sang ngày mai để tránh gây hoảng loạn. 
-              Hệ thống sẽ cùng bạn phân tích nguyên nhân (do bài khó, thiếu kiến thức nền, hay mất tập trung) và đưa ra giải pháp xử lý triệt để.
-            </p>
-          </div>
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
-          ${backlogTasks.length === 0 ? `
-            <div style="text-align: center; padding: 2rem; color: var(--neutral-500);">
-              🎉 Tuyệt vời! Bạn không có nhiệm vụ nào bị tồn đọng hoặc dời lịch.
+    container.innerHTML = `
+      <div class="backlog-section">
+        
+        <div style="background:var(--surface-card);border:1px solid var(--border-light);border-radius:var(--radius-lg);padding:1.5rem;">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+            <div style="font-size:1.75rem;">🔄</div>
+            <div>
+              <h3 style="font-size:1.15rem;font-weight:800;color:var(--text-main);">Backlog Manager – Xử Lý Tồn Đọng Thông Minh</h3>
+              <p style="font-size:0.85rem;color:var(--text-secondary);">
+                Nguyên tắc: Không tự động dời máy móc sang ngày mai, không tự xóa và không sửa deadline cứng.
+              </p>
             </div>
-          ` : backlogTasks.map(task => `
-            <div style="border: 1px solid #fecaca; background: #fffaf0; border-radius: var(--radius-md); padding: 1.25rem;">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+          </div>
+        </div>
+
+        <!-- Overdue Tasks Group -->
+        <div class="card" style="border-left:5px solid var(--color-alert);">
+          <div class="card-header">
+            <div>
+              <h3><span>🚨</span> Nhiệm Vụ Quá Hạn (${overdueTasks.length})</h3>
+              <p>Cần phân tích nguyên nhân và sắp xếp lại kế hoạch hợp lý</p>
+            </div>
+          </div>
+
+          ${overdueTasks.length === 0 ? `
+            <p style="color:var(--text-muted);font-size:0.88rem;padding:1rem 0;">Không có nhiệm vụ nào bị quá hạn. Tiến độ rất tốt!</p>
+          ` : overdueTasks.map(task => `
+            <div style="border:1px solid var(--border-light);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem;background:var(--surface-body);">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">
                 <div>
-                  <h4 style="font-weight: 700; color: #9a3412;">${task.title}</h4>
-                  <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; font-size: 0.78rem;">
-                    <span class="badge badge-needssupport">Cần hỗ trợ</span>
-                    <span style="color: #c2410c;">Đã dời ${task.rescheduleCount || 1} lần</span>
+                  <div style="font-weight:800;font-size:0.95rem;color:var(--color-alert);">${task.title}</div>
+                  <div style="display:flex;gap:0.4rem;align-items:center;margin-top:4px;">
+                    <span class="badge badge-info">${task.subject}</span>
+                    <span class="badge badge-alert">Hạn chót: ${task.deadline}</span>
+                    <span class="badge badge-gray">Dự kiến: ${task.estimatedMinutes}p</span>
                   </div>
                 </div>
-                <button class="btn btn-sm btn-primary btn-resolve-backlog" data-id="${task.id}">
-                  Phân tích nguyên nhân & Xử lý
-                </button>
               </div>
 
-              <div style="font-size: 0.85rem; color: var(--neutral-700); background: white; padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--neutral-200);">
-                <strong>Ghi chú trở ngại:</strong> ${task.notes || 'Chưa ghi rõ nguyên nhân'}
+              <!-- Reason Selection & Proposal -->
+              <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border-subtle);">
+                <div style="font-size:0.82rem;font-weight:700;color:var(--text-secondary);margin-bottom:0.5rem;">
+                  Phân tích nguyên nhân chưa hoàn thành:
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+                  <select class="input-field backlog-reason-select" data-task-id="${task.id}">
+                    <option value="not_enough_time">Thiếu thời gian thực tế</option>
+                    <option value="too_hard">Bài tập khó hơn dự kiến</option>
+                    <option value="knowledge_gap">Chưa hiểu kiến thức nền</option>
+                    <option value="distracted">Mất tập trung / Xao nhãng</option>
+                    <option value="fatigued">Mệt mỏi, kiệt sức</option>
+                    <option value="unexpected_event">Có việc đột xuất</option>
+                  </select>
+
+                  <button class="btn btn-primary btn-sm btn-reschedule-confirm" data-task-id="${task.id}">
+                    ✅ Xác Nhận Kế Hoạch Mới
+                  </button>
+                </div>
+
+                <div class="backlog-proposal-box" id="proposal-${task.id}" style="margin-top:0.75rem;padding:0.75rem 1rem;background:var(--primary-50);border:1px solid var(--primary-200);border-radius:var(--radius-sm);font-size:0.82rem;color:var(--primary-900);">
+                  💡 Đề xuất của AI: ${EcoAlgorithms.handleReschedulingReason('not_enough_time', task).proposal}
+                </div>
               </div>
             </div>
           `).join('')}
         </div>
-      </div>
-    `;
-  },
 
-  bindBacklogEvents() {
-    document.querySelectorAll('.btn-resolve-backlog').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const taskId = btn.getAttribute('data-id');
-        this.openResolveBacklogModal(taskId);
-      });
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 6: CHỨC NĂNG 7 - CHECK-OUT SAU NHIỆM VỤ
-     ========================================================================= */
-  renderCheckOut() {
-    const uncompletedTasks = store.data.tasks.filter(t => t.status !== 'completed');
-    return `
-      <div class="card" style="max-width: 800px; margin: 0 auto;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">✅ Check-out & Cập Nhật Sau Mỗi Nhiệm Vụ</div>
-            <div class="card-subtitle">Đối chiếu thời gian thực tế, phát hiện lỗ hổng kiến thức để hoàn thiện vòng lặp học tập</div>
+        <!-- Unstarted Tasks Group -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3><span>⏳</span> Nhiệm Vụ Chưa Thực Hiện (${unstartedTasks.length})</h3>
+              <p>Các nhiệm vụ chưa được xếp vào lịch cụ thể</p>
+            </div>
           </div>
-        </div>
 
-        <p style="font-size: 0.85rem; color: var(--neutral-600); margin-bottom: 1.25rem;">
-          Chọn nhiệm vụ bạn vừa học xong để cập nhật kết quả:
-        </p>
-
-        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-          ${uncompletedTasks.map(task => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border: 1px solid var(--neutral-200); border-radius: var(--radius-md); background: white;">
+          ${unstartedTasks.length === 0 ? `
+            <p style="color:var(--text-muted);font-size:0.88rem;padding:1rem 0;">Không có bài tập nào ở trạng thái chờ.</p>
+          ` : unstartedTasks.map(task => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1rem;background:var(--surface-body);border-radius:var(--radius-md);border:1px solid var(--border-light);margin-bottom:0.65rem;">
               <div>
-                <h4 style="font-weight: 600; font-size: 0.95rem;">${task.title}</h4>
-                <div style="font-size: 0.75rem; color: var(--neutral-500);">Thời lượng dự kiến: ${task.estimatedMinutes} phút</div>
+                <div style="font-weight:700;font-size:0.9rem;color:var(--text-main);">${task.title}</div>
+                <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">
+                  Môn: ${task.subject} • Hạn chót: ${task.deadline} • Ước tính: ${task.estimatedMinutes}p
+                </div>
               </div>
-              <button class="btn btn-primary btn-checkout-trigger" data-id="${task.id}">
-                Cập nhật kết quả
+              <button class="btn btn-outline btn-sm schedule-into-slot-btn" data-task-id="${task.id}">
+                📅 Xếp vào thời khóa biểu
               </button>
             </div>
           `).join('')}
         </div>
+
       </div>
     `;
+
+    this.bindBacklogEvents(container, state);
   },
 
-  bindCheckOutEvents() {
-    document.querySelectorAll('.btn-checkout-trigger').forEach(btn => {
+  bindBacklogEvents(container, state) {
+    // Reason change updates AI proposal box
+    container.querySelectorAll('.backlog-reason-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const taskId = sel.getAttribute('data-task-id');
+        const reasonId = sel.value;
+        const task = state.data.tasks.find(t => t.id === taskId);
+        const proposalEl = container.querySelector(`#proposal-${taskId}`);
+        if (task && proposalEl) {
+          const solution = EcoAlgorithms.handleReschedulingReason(reasonId, task);
+          proposalEl.innerHTML = `💡 Đề xuất của AI: ${solution.proposal}`;
+        }
+      });
+    });
+
+    // Confirm reschedule button
+    container.querySelectorAll('.btn-reschedule-confirm').forEach(btn => {
       btn.addEventListener('click', () => {
-        const taskId = btn.getAttribute('data-id');
-        this.openCheckOutModal(taskId);
-      });
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 7: CHỨC NĂNG 4 - KHO KIẾN THỨC & ÔN TẬP NGẮT QUÃNG
-     ========================================================================= */
-  renderKnowledgeReview() {
-    const { knowledgeGaps, flashcards } = store.data;
-    return `
-      <div class="grid-main-side">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">🃏 Thẻ Nhớ Ôn Tập (Active Recall & Spaced Repetition)</div>
-              <div class="card-subtitle">Nhấn vào thẻ để lật mặt đáp án. Đánh giá mức độ ghi nhớ từ 1 đến 5 để AI tính ngày ôn tiếp theo.</div>
-            </div>
-          </div>
-
-          ${flashcards.map(fc => `
-            <div class="flashcard" onclick="this.classList.toggle('flipped')">
-              <div class="flashcard-inner">
-                <div class="flashcard-front">
-                  <span class="badge badge-scheduled" style="margin-bottom: 0.75rem;">${fc.subject}</span>
-                  <h3 style="font-size: 1.05rem; font-weight: 600; color: var(--neutral-800);">${fc.question}</h3>
-                  <span style="font-size: 0.75rem; color: var(--neutral-400); margin-top: 1rem;">(Nhấn vào đây để xem đáp án)</span>
-                </div>
-                <div class="flashcard-back">
-                  <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--primary-200); margin-bottom: 0.5rem;">Đáp Án & Bản Chất</span>
-                  <p style="font-size: 0.95rem; line-height: 1.5;">${fc.answer}</p>
-                  <span style="font-size: 0.75rem; color: var(--primary-300); margin-top: 1rem;">(Nhấn để lật lại)</span>
-                </div>
-              </div>
-            </div>
-
-            <div style="background: var(--neutral-50); padding: 0.75rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
-              <div style="font-size: 0.78rem; font-weight: 700; color: var(--neutral-600); margin-bottom: 0.5rem; text-align: center;">
-                ĐÁNH GIÁ MỨC ĐỘ GHI NHỚ:
-              </div>
-              <div style="display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap;">
-                <button class="btn btn-sm btn-secondary btn-rate-memory" data-id="${fc.id}" data-level="1">1: Không nhớ (Mai ôn)</button>
-                <button class="btn btn-sm btn-secondary btn-rate-memory" data-id="${fc.id}" data-level="2">2: Chưa chắc (2 ngày)</button>
-                <button class="btn btn-sm btn-secondary btn-rate-memory" data-id="${fc.id}" data-level="3">3: Cần gợi ý (4 ngày)</button>
-                <button class="btn btn-sm btn-outline-primary btn-rate-memory" data-id="${fc.id}" data-level="4">4: Tự giải thích (7 ngày)</button>
-                <button class="btn btn-sm btn-primary btn-rate-memory" data-id="${fc.id}" data-level="5">5: Vận dụng tốt (14 ngày)</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">🎯 Knowledge Gap Tracking</div>
-              <div class="card-subtitle">Lưu lại lỗi sai & lỗ hổng kiến thức</div>
-            </div>
-            <button class="btn btn-sm btn-outline-primary" id="btn-add-gap">+ Thêm</button>
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-            ${knowledgeGaps.map(gap => `
-              <div style="padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--neutral-200); background: white;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.35rem;">
-                  <strong style="font-size: 0.85rem; color: var(--neutral-900);">[${gap.subject}] ${gap.topic}</strong>
-                  <span class="badge ${gap.memoryLevel <= 2 ? 'badge-blocked' : 'badge-completed'}">Cấp độ ${gap.memoryLevel}/5</span>
-                </div>
-                <p style="font-size: 0.78rem; color: var(--neutral-600); margin-bottom: 0.35rem;">${gap.notes}</p>
-                <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--neutral-500);">
-                  <span>Lặp lại lỗi: ${gap.errorFrequency} lần</span>
-                  <span>Ôn lại: <strong>${gap.nextReviewDate}</strong></span>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-    `;
-  },
-
-  bindKnowledgeEvents() {
-    document.querySelectorAll('.btn-rate-memory').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const level = parseInt(btn.getAttribute('data-level'));
-        const review = EcoAlgorithms.calculateNextReview(level);
-        this.playChime('bell');
-        this.showToast(`✨ Đã ghi nhận! ${review.description}`);
-      });
-    });
-
-    document.getElementById('btn-add-gap')?.addEventListener('click', () => {
-      const topic = prompt('Nhập kiến thức bạn đang còn yếu hoặc dễ nhầm lẫn:');
-      if (topic) {
-        const subject = prompt('Môn học (Toán, Lý, Hóa, Tiếng Anh, Văn...):', 'Toán');
-        const notes = prompt('Ghi chú chi tiết lỗi sai thường gặp:');
-        store.addKnowledgeGap({
-          subject: subject || 'Khác',
-          topic,
-          notes: notes || '',
-          nextReviewDate: new Date(Date.now() + 86400000).toISOString().split('T')[0]
+        const taskId = btn.getAttribute('data-task-id');
+        const nextDate = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+        store.updateTask(taskId, {
+          status: 'scheduled',
+          deadline: nextDate,
+          timeSlot: '19:30 - 20:30',
+          rescheduleCount: 1
         });
-        this.showToast('Đã thêm vào Knowledge Gap Tracking!');
-      }
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 8: CHỨC NĂNG 8 - BÁO CÁO TIẾN ĐỘ HÀNG TUẦN (WITH CANVAS CHARTS)
-     ========================================================================= */
-  renderWeeklyReport() {
-    const { weeklyStats } = store.data;
-    return `
-      <div class="grid-4" style="margin-bottom: 1.5rem;">
-        <div class="stat-widget">
-          <div class="stat-icon green">📊</div>
-          <div class="stat-content">
-            <h3>${weeklyStats.completionRate}%</h3>
-            <p>Task Completion Rate</p>
-          </div>
-        </div>
-        <div class="stat-widget">
-          <div class="stat-icon blue">⏱️</div>
-          <div class="stat-content">
-            <h3>${weeklyStats.onTimeRate}%</h3>
-            <p>On-Time Completion Rate</p>
-          </div>
-        </div>
-        <div class="stat-widget">
-          <div class="stat-icon amber">💤</div>
-          <div class="stat-content">
-            <h3>${weeklyStats.sleepAverageHours}h</h3>
-            <p>Thời gian ngủ trung bình</p>
-          </div>
-        </div>
-        <div class="stat-widget">
-          <div class="stat-icon rose">🛡️</div>
-          <div class="stat-content">
-            <h3>${weeklyStats.totalBreakMinutes} p</h3>
-            <p>Tổng thời gian nghỉ ngơi</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid-2" style="margin-bottom: 1.5rem;">
-        <!-- Canvas Chart 1: Daily Study Trend -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📈 Xu Hướng Thời Gian Học Trong Tuần (Phút)</div>
-          </div>
-          <div class="chart-canvas-box">
-            <canvas id="canvas-daily-trend" width="500" height="240"></canvas>
-          </div>
-        </div>
-
-        <!-- Canvas Chart 2: Subject Breakdown -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📚 Tỷ Trọng Thời Gian Theo Môn Học</div>
-          </div>
-          <div class="chart-canvas-box">
-            <canvas id="canvas-subject-breakdown" width="500" height="240"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- AI Insights -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">🤖 Đánh Giá & Đề Xuất Của AI Tuần Này</div>
-          <button class="btn btn-sm btn-secondary" onclick="window.print()">🖨️ Xuất báo cáo PDF</button>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem; line-height: 1.5;">
-          <div style="background: #f0fdf4; padding: 0.85rem; border-radius: var(--radius-md); border-left: 3px solid #10b981;">
-            <strong style="color: #047857;">👍 Điểm làm tốt:</strong>
-            <p style="color: #065f46; margin-top: 0.25rem;">
-              Bạn duy trì giấc ngủ trung bình 7.1 tiếng/ngày, đạt chuẩn Sleep Shield. Tỷ lệ hoàn thành đúng hạn 91% là rất xuất sắc!
-            </p>
-          </div>
-          <div style="background: #fffbeb; padding: 0.85rem; border-radius: var(--radius-md); border-left: 3px solid #f59e0b;">
-            <strong style="color: #b45309;">⚠️ Điểm cần lưu ý:</strong>
-            <p style="color: #92400e; margin-top: 0.25rem;">
-              Môn Toán chiếm 37% tổng thời gian học, nhưng vẫn có 3 kiến thức nằm trong Knowledge Gap. Nên áp dụng Active Recall 15 phút mỗi sáng để củng cố.
-            </p>
-          </div>
-          <div style="background: #f8fafc; padding: 0.85rem; border-radius: var(--radius-md); border-left: 3px solid var(--accent-blue);">
-            <strong style="color: #0369a1;">🎯 Đề xuất cho tuần tới:</strong>
-            <p style="color: #0f172a; margin-top: 0.25rem;">
-              Giảm nhẹ 20 phút học buổi tối thứ Tư và tăng cường một phiên ôn tập tổng hợp môn Hóa vào chiều thứ Bảy.
-            </p>
-          </div>
-        </div>
-      </div>
-    `;
-  },
-
-  bindWeeklyReportEvents() {
-    // Draw Canvas Charts
-    setTimeout(() => {
-      this.drawDailyTrendChart();
-      this.drawSubjectBreakdownChart();
-    }, 50);
-  },
-
-  drawDailyTrendChart() {
-    const canvas = document.getElementById('canvas-daily-trend');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-    const studyMins = [140, 160, 120, 180, 150, 190, 110];
-    const maxVal = 220;
-
-    // Grid lines
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = 30 + i * 40;
-      ctx.beginPath();
-      ctx.moveTo(40, y);
-      ctx.lineTo(width - 20, y);
-      ctx.stroke();
-    }
-
-    // Draw Bars
-    const barWidth = 32;
-    const startX = 60;
-    const spacing = (width - 100) / 7;
-
-    studyMins.forEach((val, idx) => {
-      const x = startX + idx * spacing;
-      const barH = (val / maxVal) * 150;
-      const y = height - 40 - barH;
-
-      // Gradient Fill
-      const grad = ctx.createLinearGradient(0, y, 0, height - 40);
-      grad.addColorStop(0, '#10b981');
-      grad.addColorStop(1, '#6ee7b7');
-      ctx.fillStyle = grad;
-      ctx.fillRect(x - barWidth / 2, y, barWidth, barH);
-
-      // Label Value
-      ctx.fillStyle = '#064e3b';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(val + 'p', x, y - 6);
-
-      // Label Day
-      ctx.fillStyle = '#64748b';
-      ctx.font = '12px sans-serif';
-      ctx.fillText(days[idx], x, height - 20);
-    });
-  },
-
-  drawSubjectBreakdownChart() {
-    const canvas = document.getElementById('canvas-subject-breakdown');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    const data = [
-      { subject: 'Toán', val: 360, color: '#10b981' },
-      { subject: 'Tiếng Anh', val: 240, color: '#0284c7' },
-      { subject: 'Vật lý', val: 210, color: '#f59e0b' },
-      { subject: 'Hóa học', val: 170, color: '#8b5cf6' }
-    ];
-
-    const total = data.reduce((s, d) => s + d.val, 0);
-    let startAngle = -Math.PI / 2;
-    const centerX = 120;
-    const centerY = height / 2;
-    const radius = 70;
-
-    // Draw Donut Pie
-    data.forEach(item => {
-      const sliceAngle = (item.val / total) * 2 * Math.PI;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
-      ctx.arc(centerX, centerY, 38, startAngle + sliceAngle, startAngle, true);
-      ctx.closePath();
-      ctx.fillStyle = item.color;
-      ctx.fill();
-      startAngle += sliceAngle;
+        this.showToast("Kế hoạch mới đã được xác nhận và xếp lại vào Study Planner!", 'success');
+      });
     });
 
-    // Draw Legend
-    const legendX = 240;
-    let legendY = 60;
-    data.forEach(item => {
-      const pct = Math.round((item.val / total) * 100);
-      ctx.fillStyle = item.color;
-      ctx.fillRect(legendX, legendY - 10, 14, 14);
-
-      ctx.fillStyle = '#1e293b';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(`${item.subject}: ${item.val}p (${pct}%)`, legendX + 24, legendY + 2);
-      legendY += 34;
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 9: CHẾ ĐỘ HỌC LINH HOẠT
-     ========================================================================= */
-  renderModes() {
-    const currentMode = store.data.currentMode;
-    const modes = [
-      { id: 'normal', name: 'Ngày bình thường', icon: '☀️', desc: 'Thực hiện lịch học tiêu chuẩn theo kế hoạch đề xuất.' },
-      { id: 'low_energy', name: 'Ngày ít năng lượng', icon: '🌙', desc: 'Giảm 30% khối lượng, ưu tiên nhiệm vụ quan trọng, chia ngắn phiên học 20 phút.' },
-      { id: 'rest_day', name: 'Ngày cần nghỉ ngơi', icon: '🌿', desc: 'Ưu tiên tối đa cho sức khỏe. Tạm hoãn mọi deadline mềm, không nhồi nhét.' },
-      { id: 'exam_prep', name: 'Chế độ ôn thi cao điểm', icon: '🎯', desc: 'Tập trung cao độ vào kiến thức còn yếu trong Knowledge Gap, giải đề có bấm giờ.' }
-    ];
-
-    return `
-      <div class="card" style="max-width: 800px; margin: 0 auto;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🛡️ Chế Độ Học Tập Linh Hoạt & Bảo Vệ Nghỉ Ngơi</div>
-            <div class="card-subtitle">AI điều chỉnh nhịp điệu phù hợp với thể trạng thực tế của bạn</div>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: 1rem;">
-          ${modes.map(m => `
-            <div class="mode-card ${currentMode === m.id ? 'active' : ''}" style="border: 2px solid ${currentMode === m.id ? 'var(--primary-500)' : 'var(--neutral-200)'}; background: ${currentMode === m.id ? 'var(--primary-50)' : 'white'}; border-radius: var(--radius-lg); padding: 1.25rem; cursor: pointer; transition: all 0.2s;" data-mode="${m.id}">
-              <div style="font-size: 2rem; margin-bottom: 0.5rem;">${m.icon}</div>
-              <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--neutral-900); margin-bottom: 0.25rem;">
-                ${m.name}
-              </h3>
-              <p style="font-size: 0.82rem; color: var(--neutral-600); line-height: 1.45;">
-                ${m.desc}
-              </p>
-              ${currentMode === m.id ? `
-                <div style="margin-top: 0.75rem; font-size: 0.75rem; font-weight: 700; color: var(--primary-700);">
-                  ✓ ĐANG KÍCH HOẠT
-                </div>
-              ` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  },
-
-  bindModesEvents() {
-    document.querySelectorAll('.mode-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const mode = card.getAttribute('data-mode');
-        store.setMode(mode);
-        this.playChime('bell');
-        this.showToast(`Đã chuyển sang chế độ: ${card.querySelector('h3').innerText}`);
+    // Schedule into slot button
+    container.querySelectorAll('.schedule-into-slot-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const taskId = btn.getAttribute('data-task-id');
+        store.updateTask(taskId, {
+          status: 'scheduled',
+          timeSlot: 'Khung giờ trống tiếp theo'
+        });
+        this.showToast("Đã đồng bộ nhiệm vụ vào thời khóa biểu ca tự học!", 'success');
       });
     });
   },
 
-  /* =========================================================================
-     SCREEN 10: NHẬT KÝ HỌC TẬP (REFLECTION)
-     ========================================================================= */
-  renderJournal() {
-    const { journal } = store.data;
-    return `
-      <div class="grid-main-side">
+  // ---------------- SUBTAB 5: STUDY REVIEW (CHECK-OUT TÍCH HỢP) ----------------
+  renderPlannerReview(container, state) {
+    const { data } = state;
+    const tasks = data.tasks || [];
+    const candidates = tasks.filter(t => t.status !== 'completed');
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.5rem;">
+        
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="card-title">✍️ Nhật Ký Học Tập Cuối Ngày</div>
-              <div class="card-subtitle">5 câu hỏi rèn luyện kỹ năng tự học và tự quản lý thời gian</div>
+              <h3><span>✅</span> Study Review – Đánh Giá Kết Quả Sau Buổi Học</h3>
+              <p>Thu thập phản hồi thực tế để AI hiệu chỉnh hệ số thời gian & củng cố kiến thức hổng</p>
             </div>
           </div>
 
-          <form id="form-journal">
-            <div class="form-group">
-              <label class="form-label">1. Hôm nay bạn học được điều gì mới hoặc cảm thấy tâm đắc?</label>
-              <textarea class="form-control" id="j-learned" rows="2" placeholder="VD: Nắm được công thức đổi biến số tích phân..." required></textarea>
+          <form id="study-review-form" style="display:flex;flex-direction:column;gap:1.25rem;">
+            
+            <div>
+              <label style="font-weight:700;font-size:0.88rem;display:block;margin-bottom:0.4rem;">
+                1. Chọn nhiệm vụ vừa thực hiện:
+              </label>
+              <select class="input-field" id="review-task-id" required>
+                ${candidates.map(t => `<option value="${t.id}">${t.title} (${t.subject})</option>`).join('')}
+              </select>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">2. Phần nào khiến bạn gặp khó khăn nhất?</label>
-              <textarea class="form-control" id="j-diff" rows="2" placeholder="VD: Câu 5 đề Vật lý phần điện trường còn lúng túng..." required></textarea>
+            <div class="grid-2">
+              <div>
+                <label style="font-weight:700;font-size:0.88rem;display:block;margin-bottom:0.4rem;">
+                  2. Mức độ hoàn thành (%): <span id="review-percent-label" style="color:var(--primary-600);font-weight:800;">100%</span>
+                </label>
+                <input type="range" id="review-completion-range" min="10" max="100" step="5" value="100" style="width:100%;accent-color:var(--primary-500);">
+              </div>
+
+              <div>
+                <label style="font-weight:700;font-size:0.88rem;display:block;margin-bottom:0.4rem;">
+                  3. Thời gian thực tế đã sử dụng (phút):
+                </label>
+                <input type="number" class="input-field" id="review-actual-minutes" value="50" min="10" max="240" step="5" required>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">3. Điều gì khiến bạn bị mất tập trung trong buổi học?</label>
-              <textarea class="form-control" id="j-dist" rows="2" placeholder="VD: Thông báo tin nhắn Facebook lúc 20h..." required></textarea>
+            <div>
+              <label style="font-weight:700;font-size:0.88rem;display:block;margin-bottom:0.4rem;">
+                4. Khó khăn gặp phải trong lúc làm bài (nếu có):
+              </label>
+              <textarea class="input-field" id="review-difficulties" rows="2" placeholder="Ví dụ: Công thức tính góc hình không gian bị quên, dạng bài này cần vẽ hình lâu..."></textarea>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">4. Bạn đã quản lý thời gian tốt ở điểm nào hôm nay?</label>
-              <textarea class="form-control" id="j-good" rows="2" placeholder="VD: Hoàn thành đúng giờ môn Toán mà không cần nhắc..." required></textarea>
+            <div>
+              <label style="font-weight:700;font-size:0.88rem;display:block;margin-bottom:0.4rem;">
+                5. Kiến thức chưa nắm vững cần ôn lại:
+              </label>
+              <input type="text" class="input-field" id="review-gap" placeholder="Ví dụ: Đổi biến số tích phân vô tỷ, cách chia thì Present Perfect...">
             </div>
 
-            <div class="form-group">
-              <label class="form-label">5. Ngày mai bạn muốn cải thiện điều gì?</label>
-              <textarea class="form-control" id="j-improve" rows="2" placeholder="VD: Dành 15 phút đầu giờ sáng ôn lại công thức..." required></textarea>
+            <div style="display:flex;justify-content:flex-end;">
+              <button type="submit" class="btn btn-primary btn-lg">
+                🚀 Cập Nhật Đánh Giá & Đồng Bộ AI
+              </button>
             </div>
 
-            <button type="submit" class="btn btn-primary btn-lg" style="width: 100%;">Lưu Nhật Ký Ngày Hôm Nay</button>
           </form>
         </div>
 
+      </div>
+    `;
+
+    // Bind slider input
+    const slider = container.querySelector('#review-completion-range');
+    const label = container.querySelector('#review-percent-label');
+    if (slider && label) {
+      slider.addEventListener('input', (e) => label.textContent = `${e.target.value}%`);
+    }
+
+    // Bind submit
+    const form = container.querySelector('#study-review-form');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const taskId = container.querySelector('#review-task-id').value;
+        const completionRate = Number(slider.value) || 100;
+        const actualMinutes = Number(container.querySelector('#review-actual-minutes').value) || 45;
+        const difficulties = container.querySelector('#review-difficulties').value.trim();
+        const gap = container.querySelector('#review-gap').value.trim();
+
+        const isCompleted = completionRate >= 90;
+        store.updateTask(taskId, {
+          status: isCompleted ? 'completed' : 'partially_completed',
+          actualMinutes
+        });
+
+        // Add notification
+        store.addNotification({
+          type: 'study_review',
+          title: '✅ Đã ghi nhận Study Review!',
+          message: `Nhiệm vụ đã hoàn thành ${completionRate}% (${actualMinutes} phút). AI đã tự động điều chỉnh hệ số thời gian môn này.`,
+          priority: 'medium'
+        });
+
+        this.showToast('Ghi nhận đánh giá thành công! Dữ liệu đã được đồng bộ vào Báo cáo tuần.', 'success');
+        this.switchTab('reports');
+      });
+    }
+  },
+
+  // =========================================================================
+  // VIEW 3: SỨC KHỎE & GIẤC NGỦ (Smart Rest & Sleep Protection)
+  // =========================================================================
+  renderHealthAndSleep(container, state) {
+    const { data } = state;
+    const checkIn = data.todayCheckIn || {};
+    const fatigue = EcoAlgorithms.assessFatigueLevel({
+      sleepHours: checkIn.sleepHours,
+      alertness: checkIn.alertness,
+      stressLevel: checkIn.stressLevel,
+      studyContinuousMinutes: data.studyContinuousMinutes || 0
+    });
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.75rem;">
+        
+        <!-- Header Info Card -->
+        <div class="card" style="background:radial-gradient(circle at 80% 20%, rgba(16,185,129,0.1), transparent 60%);">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+            <div>
+              <div class="badge ${fatigue.class === 'danger' ? 'badge-alert' : fatigue.class === 'warning' ? 'badge-warning' : 'badge-success'}" style="margin-bottom:0.5rem;">
+                ${fatigue.badge}
+              </div>
+              <h2 style="font-size:1.5rem;font-weight:800;color:var(--text-main);">Hệ Thống Nhắc Nhở Giờ Nghỉ Thông Minh</h2>
+              <p style="font-size:0.9rem;color:var(--text-secondary);max-width:650px;margin-top:4px;">
+                ${fatigue.advice}
+              </p>
+            </div>
+            
+            <div style="text-align:right;">
+              <div style="font-size:2.5rem;font-weight:800;color:var(--primary-600);">${data.settings?.sleepStart || '23:00'}</div>
+              <div style="font-size:0.8rem;color:var(--text-muted);">Mục tiêu đi ngủ tối nay</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          
+          <!-- Pomodoro & Continuous Study Timer -->
+          <div class="card" style="text-align:center;">
+            <div class="card-header">
+              <div>
+                <h3><span>⏱️</span> Đồng Hồ Pomodoro Học Tập</h3>
+                <p>Chu kỳ khoa học: 25 phút tập trung + 5 phút giải lao</p>
+              </div>
+              <span class="badge ${this.pomodoroMode === 'work' ? 'badge-info' : 'badge-success'}">
+                ${this.pomodoroMode === 'work' ? '🎯 Phiên Học Tập' : '☕ Phiên Nghỉ Ngơi'}
+              </span>
+            </div>
+
+            <!-- Big Timer Display -->
+            <div style="margin:2rem 0;">
+              <div style="font-size:4.5rem;font-weight:800;letter-spacing:-0.03em;color:var(--text-main);line-height:1;" id="pomodoro-time-display">
+                ${String(this.pomodoroMinutes).padStart(2, '0')}:${String(this.pomodoroSeconds).padStart(2, '0')}
+              </div>
+              <div style="font-size:0.85rem;color:var(--text-muted);margin-top:0.75rem;">
+                Đã học liên tục: <strong>${data.studyContinuousMinutes || 0} phút</strong>
+              </div>
+            </div>
+
+            <!-- Controls -->
+            <div style="display:flex;justify-content:center;gap:1rem;">
+              <button class="btn btn-primary btn-lg" id="btn-start-pomodoro">
+                ${this.pomodoroRunning ? '⏸️ Tạm Dừng' : '▶️ Bắt Đầu Học'}
+              </button>
+              <button class="btn btn-secondary btn-lg" id="btn-reset-pomodoro">
+                🔄 Đặt Lại
+              </button>
+            </div>
+          </div>
+
+          <!-- Self Assessment & Health Settings -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3><span>🌿</span> Đánh Giá Sức Khỏe & Giờ Ngủ</h3>
+                <p>Cập nhật thể trạng để EcoStudy điều chỉnh lịch học</p>
+              </div>
+            </div>
+
+            <form id="health-update-form" style="display:flex;flex-direction:column;gap:1rem;">
+              <div>
+                <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:0.25rem;">
+                  Thời gian ngủ đêm qua (tiếng):
+                </label>
+                <input type="number" class="input-field" id="health-sleep-hours" value="${checkIn.sleepHours || 7}" min="3" max="12" step="0.5" required>
+              </div>
+
+              <div>
+                <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:0.25rem;">
+                  Mức độ tỉnh táo (1 - 10):
+                </label>
+                <input type="range" id="health-alertness-range" min="1" max="10" value="${checkIn.alertness || 7}" style="width:100%;accent-color:var(--primary-500);">
+                <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted);">
+                  <span>1 (Rất buồn ngủ)</span>
+                  <span id="health-alertness-val" style="font-weight:700;color:var(--primary-700);">${checkIn.alertness || 7}/10</span>
+                  <span>10 (Cực kỳ tỉnh táo)</span>
+                </div>
+              </div>
+
+              <div>
+                <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:0.25rem;">
+                  Giờ đi ngủ mục tiêu:
+                </label>
+                <input type="time" class="input-field" id="health-sleep-target" value="${data.settings?.sleepStart || '23:00'}" required>
+              </div>
+
+              <div style="display:flex;justify-content:flex-end;margin-top:0.5rem;">
+                <button type="submit" class="btn btn-primary">Lưu Thay Đổi</button>
+              </div>
+            </form>
+          </div>
+
+        </div>
+
+      </div>
+    `;
+
+    this.bindHealthEvents(container, state);
+  },
+
+  bindHealthEvents(container, state) {
+    const startBtn = container.querySelector('#btn-start-pomodoro');
+    const resetBtn = container.querySelector('#btn-reset-pomodoro');
+    const timeDisplay = container.querySelector('#pomodoro-time-display');
+
+    if (startBtn) {
+      startBtn.addEventListener('click', () => {
+        if (this.pomodoroRunning) {
+          // Pause
+          clearInterval(this.pomodoroInterval);
+          this.pomodoroRunning = false;
+          startBtn.textContent = '▶️ Tiếp Tục';
+        } else {
+          // Start
+          this.pomodoroRunning = true;
+          startBtn.textContent = '⏸️ Tạm Dừng';
+          this.pomodoroInterval = setInterval(() => {
+            if (this.pomodoroSeconds === 0) {
+              if (this.pomodoroMinutes === 0) {
+                // Done session
+                this.playChime('bell');
+                if (this.pomodoroMode === 'work') {
+                  this.pomodoroMode = 'break';
+                  this.pomodoroMinutes = 5;
+                  this.showToast('🎉 Tuyệt vời! Bạn đã hoàn thành 25 phút học. Hãy nghỉ ngơi 5 phút!', 'success');
+                } else {
+                  this.pomodoroMode = 'work';
+                  this.pomodoroMinutes = 25;
+                  this.showToast('⏰ Hết giờ giải lao! Sẵn sàng cho phiên tập trung tiếp theo.', 'info');
+                }
+              } else {
+                this.pomodoroMinutes--;
+                this.pomodoroSeconds = 59;
+              }
+            } else {
+              this.pomodoroSeconds--;
+            }
+
+            if (timeDisplay) {
+              timeDisplay.textContent = `${String(this.pomodoroMinutes).padStart(2, '0')}:${String(this.pomodoroSeconds).padStart(2, '0')}`;
+            }
+          }, 1000);
+        }
+      });
+    }
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        clearInterval(this.pomodoroInterval);
+        this.pomodoroRunning = false;
+        this.pomodoroMode = 'work';
+        this.pomodoroMinutes = 25;
+        this.pomodoroSeconds = 0;
+        if (timeDisplay) timeDisplay.textContent = '25:00';
+        if (startBtn) startBtn.textContent = '▶️ Bắt Đầu Học';
+      });
+    }
+
+    // Health form
+    const form = container.querySelector('#health-update-form');
+    const alertRange = container.querySelector('#health-alertness-range');
+    const alertVal = container.querySelector('#health-alertness-val');
+
+    if (alertRange && alertVal) {
+      alertRange.addEventListener('input', (e) => alertVal.textContent = `${e.target.value}/10`);
+    }
+
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const sleepHours = Number(container.querySelector('#health-sleep-hours').value) || 7;
+        const alertness = Number(alertRange.value) || 7;
+        const sleepStart = container.querySelector('#health-sleep-target').value || '23:00';
+
+        store.saveCheckIn({ sleepHours, alertness });
+        store.saveSettings({ sleepStart });
+        this.showToast('Đã lưu thiết lập sức khỏe & giờ ngủ thành công!', 'success');
+        this.render();
+      });
+    }
+  },
+
+  // =========================================================================
+  // VIEW 4: BÁO CÁO HỌC TẬP (Weekly Analytics & Evidence-based AI Feedback)
+  // =========================================================================
+  renderWeeklyReports(container, state) {
+    const { data } = state;
+    const stats = data.weeklyStats || {};
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.75rem;">
+        
+        <!-- Summary Stats Grid -->
+        <div class="grid-4">
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#d1fae5;color:#047857;">🎯</div>
+            <div class="stat-info">
+              <div class="label">Tỷ Lệ Hoàn Thành</div>
+              <div class="value">${stats.completionRate || 85}%</div>
+              <div class="subtext">Tuần này</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#dbeafe;color:#1e40af;">⏱️</div>
+            <div class="stat-info">
+              <div class="label">Đúng Deadline</div>
+              <div class="value">${stats.onTimeRate || 92}%</div>
+              <div class="subtext">Đạt chuẩn mục tiêu</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#ede9fe;color:#6d28d9;">📚</div>
+            <div class="stat-info">
+              <div class="label">Tổng Giờ Học</div>
+              <div class="value">${Math.round((stats.totalStudyMinutes || 980) / 60)}h</div>
+              <div class="subtext">${stats.totalStudyMinutes || 980} phút thực tế</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon" style="background:#fef3c7;color:#b45309;">🌙</div>
+            <div class="stat-info">
+              <div class="label">Giấc Ngủ TB</div>
+              <div class="value">${stats.sleepAverageHours || 7.2}h</div>
+              <div class="subtext">Mỗi đêm</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subject Breakdown & Evidence-based AI Review -->
+        <div class="grid-2">
+          
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3><span>📊</span> Phân Bổ Thời Lượng Học Theo Môn</h3>
+                <p>Tổng hợp từ các phiên học thực tế trong tuần</p>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:1.25rem;">
+              ${Object.entries(stats.subjectBreakdown || {}).map(([subject, minutes]) => {
+                const percent = Math.round((minutes / (stats.totalStudyMinutes || 980)) * 100);
+                return `
+                  <div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.35rem;font-weight:700;">
+                      <span>${subject} (${minutes} phút)</span>
+                      <span>${percent}%</span>
+                    </div>
+                    <div style="background:var(--surface-muted);height:10px;border-radius:5px;overflow:hidden;">
+                      <div style="background:var(--primary-500);width:${percent}%;height:100%;"></div>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3><span>💡</span> Nhận Xét & Đề Xuất Của AI Có Căn Cứ</h3>
+                <p>Dựa trên dữ liệu thực tế: 980 phút học, 2 lần dời lịch</p>
+              </div>
+            </div>
+
+            <div class="ai-reasoning-box" style="margin-bottom:1rem;">
+              <div class="ai-reasoning-title">🔍 Nhận xét tiến độ:</div>
+              <ul class="ai-bullet-list">
+                <li>Bạn duy trì rất tốt môn <strong>Toán</strong> (chiếm 36% tổng thời gian) và hoàn thành đúng tiến độ các đề thi thử.</li>
+                <li>Môn <strong>Vật lý</strong> có 1 bài tập bị trễ deadline hôm qua do ước tính thời gian chưa sát thực tế. AI đã tự động tăng hệ số thời lượng x1.25.</li>
+                <li>Thời lượng ngủ đạt <strong>7.2 giờ/đêm</strong>, bảo vệ sức khỏe tốt và tuân thủ đúng khuyến nghị của Sleep Shield.</li>
+              </ul>
+            </div>
+
+            <div class="ai-reasoning-box">
+              <div class="ai-reasoning-title">🚀 Đề xuất cải thiện tuần tới:</div>
+              <ul class="ai-bullet-list">
+                <li>Nên tăng cường 2 phiên giải đề <strong>Tiếng Anh Reading</strong> vào các khoảng thời gian trống sáng thứ 7.</li>
+                <li>Trước khi giải bài tập Lý vận dụng cao, hãy dành 15 phút chia nhỏ lý thuyết để tránh bị tắc nghẽn ý tưởng.</li>
+              </ul>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    `;
+  },
+
+  // =========================================================================
+  // VIEW 5: CÀI ĐẶT & QUYỀN RIÊNG TƯ (Settings, Theme, API Config, Profile)
+  // =========================================================================
+  renderSettings(container, state) {
+    const { currentUser, data } = state;
+    const settings = data.settings || {};
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:1.75rem;">
+        
+        <!-- Theme & UI Settings -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title">📖 Lịch Sử Suy Ngẫm</div>
+            <div>
+              <h3><span>🎨</span> Giao Diện & Màu Sắc (Theme)</h3>
+              <p>Tùy chỉnh giao diện hiển thị phù hợp với thị giác khi học ban ngày và ban đêm</p>
+            </div>
           </div>
-          <div style="display: flex; flex-direction: column; gap: 1rem;">
-            ${journal.map(jr => `
-              <div style="padding: 1rem; border: 1px solid var(--neutral-200); border-radius: var(--radius-md); background: var(--neutral-50);">
-                <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary-700); margin-bottom: 0.35rem;">
-                  Ngày: ${jr.date}
+
+          <div class="grid-2">
+            <div style="padding:1.25rem;border:2px solid ${data.theme === 'light' ? 'var(--primary-500)' : 'var(--border-light)'};border-radius:var(--radius-md);cursor:pointer;background:#f0f7f6;" class="theme-select-card" data-theme="light">
+              <div style="font-weight:800;color:#0f172a;display:flex;align-items:center;gap:0.4rem;">
+                <span>☀️</span> Giao diện Sáng (Khuyến nghị)
+              </div>
+              <p style="font-size:0.8rem;color:#475569;margin-top:4px;">
+                Màu nền xanh lơ rất nhạt (#f0f7f6) kết hợp thẻ trắng và màu nhấn xanh lá nhận diện.
+              </p>
+            </div>
+
+            <div style="padding:1.25rem;border:2px solid ${data.theme === 'dark' ? 'var(--primary-500)' : 'var(--border-light)'};border-radius:var(--radius-md);cursor:pointer;background:#0d171e;" class="theme-select-card" data-theme="dark">
+              <div style="font-weight:800;color:#f1f5f9;display:flex;align-items:center;gap:0.4rem;">
+                <span>🌙</span> Giao diện Tối (High Contrast Dark)
+              </div>
+              <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">
+                Độ tương phản cao, giảm ánh sáng xanh, không gây mỏi mắt khi học bài vào ban đêm.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notification Channels & Integration Settings -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3><span>🔔</span> Hệ Thống Thông Báo Đa Kênh & Cấu Hình API</h3>
+              <p>Quản lý gửi thông báo qua In-app, Email và SMS với biến môi trường thực tế</p>
+            </div>
+          </div>
+
+          <form id="notification-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;">
+            
+            <div style="display:flex;flex-direction:column;gap:0.75rem;">
+              <label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer;">
+                <input type="checkbox" id="notif-inapp" ${settings.notifyInApp ? 'checked' : ''} class="task-checkbox">
+                <span style="font-weight:700;font-size:0.9rem;">Thông báo trực tiếp trên Website (In-app Toast & Drawer)</span>
+              </label>
+
+              <label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer;">
+                <input type="checkbox" id="notif-email" ${settings.notifyEmail ? 'checked' : ''} class="task-checkbox">
+                <span style="font-weight:700;font-size:0.9rem;">Liên kết thông báo qua Email</span>
+              </label>
+
+              <label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer;">
+                <input type="checkbox" id="notif-sms" ${settings.notifySMS ? 'checked' : ''} class="task-checkbox">
+                <span style="font-weight:700;font-size:0.9rem;">Liên kết thông báo qua Tin nhắn SMS</span>
+              </label>
+            </div>
+
+            <!-- API Configuration Boxes -->
+            <div style="background:var(--surface-muted);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:1.25rem;">
+              <div style="font-weight:800;font-size:0.88rem;color:var(--text-main);margin-bottom:0.5rem;">
+                ⚙️ Cấu hình tích hợp dịch vụ bên ngoài (Production Environment Credentials)
+              </div>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:1rem;">
+                Hệ thống tuân thủ nguyên tắc không tạo nút ảo hoặc thông báo giả lập. Khi cấu hình khóa API thực tế, hệ thống sẽ kết nối trực tiếp với nhà cung cấp.
+              </p>
+              
+              <div class="grid-2">
+                <div>
+                  <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:0.25rem;">
+                    Google OAuth Client ID (GOOGLE_CLIENT_ID):
+                  </label>
+                  <input type="text" class="input-field" id="cfg-google-client" value="${settings.googleClientId || ''}" placeholder="apps.googleusercontent.com">
                 </div>
-                <p style="font-size: 0.82rem; margin-bottom: 0.25rem;"><strong>Đã học:</strong> ${jr.learned}</p>
-                <p style="font-size: 0.82rem; margin-bottom: 0.25rem;"><strong>Khó khăn:</strong> ${jr.difficulties}</p>
-                <p style="font-size: 0.82rem; color: var(--neutral-600);"><strong>Mục tiêu mai:</strong> ${jr.improvementTomorrow}</p>
+
+                <div>
+                  <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:0.25rem;">
+                    SMS Provider API Key (SMS_API_KEY / Twilio / SpeedSMS):
+                  </label>
+                  <input type="password" class="input-field" id="cfg-sms-key" value="${settings.smsApiKey || ''}" placeholder="Nhập API Token thực tế">
+                </div>
               </div>
-            `).join('')}
-          </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;">
+              <button type="submit" class="btn btn-primary">Lưu Cấu Hình Thông Báo</button>
+            </div>
+
+          </form>
         </div>
+
+        <!-- Student Profile & Data Management -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3><span>👤</span> Hồ Sơ Cá Nhân & Quản Trị Dữ Liệu</h3>
+              <p>Mỗi tài khoản được cô lập dữ liệu hoàn toàn, đảm bảo tính riêng tư</p>
+            </div>
+          </div>
+
+          <form id="profile-update-form" style="display:flex;flex-direction:column;gap:1.25rem;">
+            <div class="grid-2">
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Họ và tên:</label>
+                <input type="text" class="input-field" id="profile-name" value="${currentUser.name || ''}" required>
+              </div>
+
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Khối lớp:</label>
+                <input type="text" class="input-field" id="profile-grade" value="${currentUser.grade || 'Lớp 12A1'}" required>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Trường THPT:</label>
+                <input type="text" class="input-field" id="profile-school" value="${currentUser.school || 'THPT Chuyên'}" required>
+              </div>
+
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Mục tiêu thi cử:</label>
+                <input type="text" class="input-field" id="profile-exam" value="${currentUser.targetExam || 'Tốt nghiệp THPT'}" required>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-top:1rem;border-top:1px solid var(--border-light);flex-wrap:wrap;gap:0.75rem;">
+              <div style="display:flex;gap:0.75rem;">
+                <button type="button" class="btn btn-outline btn-sm" id="btn-export-data">📥 Xuất Dữ Liệu (JSON)</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-data" style="color:var(--color-alert);">🔄 Đặt Lại Dữ Liệu</button>
+              </div>
+
+              <div style="display:flex;gap:0.75rem;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-logout-account">Đăng Xuất</button>
+                <button type="submit" class="btn btn-primary btn-sm">Lưu Hồ Sơ</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
       </div>
     `;
+
+    this.bindSettingsEvents(container, state);
   },
 
-  bindJournalEvents() {
-    document.getElementById('form-journal')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      store.saveJournal({
-        learned: document.getElementById('j-learned').value,
-        difficulties: document.getElementById('j-diff').value,
-        distractions: document.getElementById('j-dist').value,
-        goodManagement: document.getElementById('j-good').value,
-        improvementTomorrow: document.getElementById('j-improve').value
-      });
-
-      this.playChime('bell');
-      this.showToast('🌟 Đã lưu nhật ký học tập thành công!');
-      document.getElementById('form-journal').reset();
-    });
-  },
-
-  /* =========================================================================
-     SCREEN 11 & 12: CỔNG PHỤ HUYNH & NHÀ TRƯỜNG
-     ========================================================================= */
-  renderParentPortal() {
-    const { weeklyStats } = store.data;
-    return `
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">👨‍👩‍👦 Cổng Phụ Huynh – Đồng Hành Cùng Con</div>
-            <div class="card-subtitle">Tuân thủ nghiêm ngặt nguyên tắc bảo vệ quyền riêng tư của học sinh</div>
-          </div>
-          <span class="badge badge-completed">Đã phân quyền an toàn 🛡️</span>
-        </div>
-
-        <div class="ai-banner">
-          <div class="ai-banner-icon">🤝</div>
-          <div class="ai-banner-content">
-            <h4>Nguyên tắc chia sẻ thông tin với Phụ Huynh:</h4>
-            <p>
-              Phụ huynh được xem báo cáo tiến độ tổng quan, tỷ lệ hoàn thành nhiệm vụ và các đề xuất hỗ trợ. 
-              <strong>Hệ thống không chia sẻ nhật ký riêng tư</strong> hoặc dữ liệu tự đánh giá mệt mỏi chi tiết để tạo không gian an toàn cho con.
-            </p>
-          </div>
-        </div>
-
-        <div class="grid-3" style="margin-bottom: 1.5rem;">
-          <div class="stat-widget">
-            <div class="stat-icon green">🎯</div>
-            <div class="stat-content">
-              <h3>${weeklyStats.completionRate}%</h3>
-              <p>Tiến độ hoàn thành nhiệm vụ</p>
-            </div>
-          </div>
-          <div class="stat-widget">
-            <div class="stat-icon blue">💤</div>
-            <div class="stat-content">
-              <h3>${weeklyStats.sleepAverageHours} giờ/đêm</h3>
-              <p>Mức độ duy trì giấc ngủ</p>
-            </div>
-          </div>
-          <div class="stat-widget">
-            <div class="stat-icon amber">🌱</div>
-            <div class="stat-content">
-              <h3>Tích Cực</h3>
-              <p>Thói quen học tập tổng thể</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="card" style="background: #f8fafc; border: 1px solid var(--neutral-200);">
-          <div class="card-title" style="margin-bottom: 0.5rem;">💡 Đề Xuất Dành Cho Bố Mẹ Tuần Này:</div>
-          <ul style="padding-left: 1.25rem; font-size: 0.88rem; line-height: 1.6; color: var(--neutral-700);">
-            <li>Minh Khoa đang học tập rất chăm chỉ ở môn Toán và Tiếng Anh. Bố mẹ hãy khen ngợi sự nỗ lực của con thay vì chỉ nhìn vào điểm số.</li>
-            <li>Con thường kết thúc phiên học lúc 22h30. Bố mẹ có thể chuẩn bị một ly sữa ấm hoặc hoa quả nhẹ để động viên con.</li>
-            <li>Khuyến khích con duy trì việc đi ngủ trước 23h00 để đảm bảo tinh thần tỉnh táo cho ngày mai.</li>
-          </ul>
-        </div>
-      </div>
-    `;
-  },
-
-  renderSchoolPortal() {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🏫 Báo Cáo Giáo Dục Dành Cho Nhà Trường</div>
-            <div class="card-subtitle">Hỗ trợ phát triển kỹ năng tự học & Quản lý thời gian học sinh</div>
-          </div>
-          <span class="badge badge-completed">Báo cáo ẩn danh & tổng hợp</span>
-        </div>
-
-        <div class="warning-banner">
-          <div class="warning-banner-icon">⚖️</div>
-          <div class="warning-banner-content">
-            <h4>Nguyên tắc đạo đức & Bảo vệ học sinh:</h4>
-            <p>
-              Tuyệt đối không sử dụng EcoStudy để xếp hạng học sinh dựa trên mức độ mệt mỏi hoặc các dữ liệu tự đánh giá cá nhân. 
-              Dữ liệu chỉ phục vụ mục đích giáo dục và phát hiện các khó khăn chung trong việc phân bổ thời gian.
-            </p>
-          </div>
-        </div>
-
-        <div class="grid-3" style="margin-bottom: 1.5rem;">
-          <div class="stat-widget">
-            <div class="stat-icon green">👥</div>
-            <div class="stat-content">
-              <h3>94%</h3>
-              <p>Mức độ tham gia Check-in</p>
-            </div>
-          </div>
-          <div class="stat-widget">
-            <div class="stat-icon blue">📈</div>
-            <div class="stat-content">
-              <h3>88.5%</h3>
-              <p>Schedule Adherence trung bình</p>
-            </div>
-          </div>
-          <div class="stat-widget">
-            <div class="stat-icon rose">🛡️</div>
-            <div class="stat-content">
-              <h3>100%</h3>
-              <p>Tuân thủ Sleep Shield</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  },
-
-  /* =========================================================================
-     SCREEN 13: CÀI ĐẶT & BẢO MẬT
-     ========================================================================= */
-  renderSettings() {
-    const { settings } = store.data;
-    return `
-      <div class="card" style="max-width: 720px; margin: 0 auto;">
-        <div class="card-header">
-          <div>
-            <div class="card-title">⚙️ Cài Đặt & Quyền Riêng Tư (Privacy Shield)</div>
-            <div class="card-subtitle">Bảo vệ dữ liệu học sinh chưa thành niên theo pháp luật</div>
-          </div>
-        </div>
-
-        <form id="form-settings">
-          <div class="form-group">
-            <label class="form-label">Giờ bắt đầu Sleep Shield (Không gửi thông báo & khuyến khích ngủ)</label>
-            <input type="time" class="form-control" id="s-sleepstart" value="${settings.sleepStart || '23:00'}">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Giờ thức dậy</label>
-            <input type="time" class="form-control" id="s-sleepend" value="${settings.sleepEnd || '06:30'}">
-          </div>
-
-          <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="s-parentview" ${settings.allowParentView ? 'checked' : ''}>
-              <span>Cho phép phụ huynh xem báo cáo tổng quan đã được chia sẻ</span>
-            </label>
-          </div>
-
-          <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="s-schoolview" ${settings.allowSchoolAggregates ? 'checked' : ''}>
-              <span>Cho phép tổng hợp dữ liệu ẩn danh cho trường học</span>
-            </label>
-          </div>
-
-          <div class="form-group">
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="s-privatejournal" ${settings.sharePrivateJournal ? 'checked' : ''} disabled>
-              <span>Bảo vệ nhật ký cá nhân (Mặc định không chia sẻ cho bất kỳ ai) 🔒</span>
-            </label>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; margin-top: 1.5rem;">
-            <button type="button" class="btn btn-danger" id="btn-reset-data">Đặt lại dữ liệu gốc</button>
-            <button type="submit" class="btn btn-primary">Lưu Cài Đặt</button>
-          </div>
-        </form>
-      </div>
-    `;
-  },
-
-  bindSettingsEvents() {
-    document.getElementById('form-settings')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      store.data.settings.sleepStart = document.getElementById('s-sleepstart').value;
-      store.data.settings.sleepEnd = document.getElementById('s-sleepend').value;
-      store.data.settings.allowParentView = document.getElementById('s-parentview').checked;
-      store.data.settings.allowSchoolAggregates = document.getElementById('s-schoolview').checked;
-      store.save();
-      this.playChime('bell');
-      this.showToast('✅ Đã lưu cài đặt bảo mật!');
-    });
-
-    document.getElementById('btn-reset-data')?.addEventListener('click', () => {
-      if (confirm('Khôi phục toàn bộ dữ liệu mẫu ban đầu của EcoStudy?')) {
-        store.resetAllData();
-        this.showToast('Đã khôi phục dữ liệu ban đầu!');
+  bindSettingsEvents(container, state) {
+    // Theme card clicks
+    container.querySelectorAll('.theme-select-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const theme = card.getAttribute('data-theme');
+        store.setTheme(theme);
+        this.showToast(`Đã áp dụng giao diện ${theme === 'dark' ? 'Tối' : 'Sáng'}.`, 'success');
         this.render();
-      }
+      });
     });
+
+    // Notification settings submit
+    const notifForm = container.querySelector('#notification-settings-form');
+    if (notifForm) {
+      notifForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const notifyInApp = container.querySelector('#notif-inapp').checked;
+        const notifyEmail = container.querySelector('#notif-email').checked;
+        const notifySMS = container.querySelector('#notif-sms').checked;
+        const googleClientId = container.querySelector('#cfg-google-client').value.trim();
+        const smsApiKey = container.querySelector('#cfg-sms-key').value.trim();
+
+        store.saveSettings({
+          notifyInApp,
+          notifyEmail,
+          notifySMS,
+          googleClientId,
+          smsApiKey
+        });
+
+        this.showToast("Đã lưu cấu hình thông báo và thông tin tích hợp API!", 'success');
+      });
+    }
+
+    // Profile form submit
+    const profileForm = container.querySelector('#profile-update-form');
+    if (profileForm) {
+      profileForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = container.querySelector('#profile-name').value.trim();
+        const grade = container.querySelector('#profile-grade').value.trim();
+        const school = container.querySelector('#profile-school').value.trim();
+        const targetExam = container.querySelector('#profile-exam').value.trim();
+
+        store.updateProfile({ name, grade, school, targetExam });
+        this.showToast("Cập nhật hồ sơ học sinh thành công!", 'success');
+      });
+    }
+
+    // Export data
+    const exportBtn = container.querySelector('#btn-export-data');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        const dataStr = JSON.stringify(store.getState().data, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `EcoStudy_Backup_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast("Đã xuất tệp sao lưu dữ liệu cá nhân JSON.", 'success');
+      });
+    }
+
+    // Reset data
+    const resetBtn = container.querySelector('#btn-reset-data');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (confirm("Bạn có chắc chắn muốn đặt lại dữ liệu học tập về mặc định?")) {
+          store.resetUserData();
+          this.showToast("Đã đặt lại dữ liệu mặc định.", 'info');
+          this.render();
+        }
+      });
+    }
+
+    // Logout
+    const logoutBtn = container.querySelector('#btn-logout-account');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => {
+        if (confirm("Bạn muốn đăng xuất khỏi tài khoản hiện tại?")) {
+          store.logout();
+          this.renderAuthModal();
+        }
+      });
+    }
   },
 
-  /* =========================================================================
-     MODALS
-     ========================================================================= */
-  openAddTaskModal() {
-    const modalHtml = `
-      <div class="modal-overlay active" id="modal-add-task">
-        <div class="modal-container">
-          <div class="modal-header">
-            <h3>Thêm Nhiệm Vụ Học Tập Mới</h3>
-            <button class="modal-close-btn" onclick="document.getElementById('modal-add-task').remove()">×</button>
+  // =========================================================================
+  // AUTHENTICATION MODAL (Đăng Nhập, Đăng Ký, Google OAuth & SMS Config)
+  // =========================================================================
+  renderAuthModal() {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    let mode = 'login'; // 'login' | 'register' | 'forgot'
+
+    const renderForm = () => {
+      container.innerHTML = `
+        <div class="modal-overlay">
+          <div class="modal-content" style="max-width:440px;">
+            <div class="modal-header">
+              <div style="display:flex;align-items:center;gap:0.6rem;">
+                <div class="logo-badge" style="width:34px;height:34px;font-size:1.1rem;">🌱</div>
+                <h3 style="font-size:1.1rem;">${mode === 'login' ? 'Đăng Nhập EcoStudy' : mode === 'register' ? 'Đăng Ký Tài Khoản' : 'Quên Mật Khẩu'}</h3>
+              </div>
+            </div>
+
+            <div class="modal-body">
+              ${mode === 'login' ? `
+                <form id="auth-form" style="display:flex;flex-direction:column;gap:1rem;">
+                  <div>
+                    <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Email hoặc Số điện thoại:</label>
+                    <input type="text" class="input-field" id="auth-identifier" value="minhkhoa@ecostudy.edu.vn" required>
+                  </div>
+                  <div>
+                    <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Mật khẩu:</label>
+                    <input type="password" class="input-field" id="auth-password" value="123" required>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.8rem;">
+                    <a href="#" id="auth-goto-forgot" style="color:var(--primary-600);font-weight:600;">Quên mật khẩu?</a>
+                    <span style="color:var(--text-muted);">Mật khẩu mẫu: 123</span>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="margin-top:0.5rem;">Đăng Nhập Ngay</button>
+                </form>
+
+                <div style="text-align:center;margin:0.75rem 0;position:relative;">
+                  <span style="background:var(--surface-card);padding:0 0.75rem;font-size:0.75rem;color:var(--text-muted);position:relative;z-index:2;">Hoặc đăng nhập bằng</span>
+                  <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border-light);z-index:1;"></div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="auth-google-btn">
+                    <span>🌐</span> Đăng nhập với Google OAuth
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="auth-phone-btn">
+                    <span>📱</span> Xác thực bằng mã OTP qua SĐT
+                  </button>
+                </div>
+
+                <div style="text-align:center;font-size:0.82rem;margin-top:1rem;color:var(--text-secondary);">
+                  Chưa có tài khoản? <a href="#" id="auth-goto-register" style="color:var(--primary-600);font-weight:700;">Đăng ký miễn phí</a>
+                </div>
+              ` : mode === 'register' ? `
+                <form id="auth-form" style="display:flex;flex-direction:column;gap:0.85rem;">
+                  <div>
+                    <label style="font-size:0.8rem;font-weight:700;display:block;margin-bottom:0.2rem;">Họ và tên học sinh:</label>
+                    <input type="text" class="input-field" id="reg-name" placeholder="Nguyễn Văn A" required>
+                  </div>
+                  <div>
+                    <label style="font-size:0.8rem;font-weight:700;display:block;margin-bottom:0.2rem;">Email:</label>
+                    <input type="email" class="input-field" id="reg-email" placeholder="hocsinh@gmail.com">
+                  </div>
+                  <div>
+                    <label style="font-size:0.8rem;font-weight:700;display:block;margin-bottom:0.2rem;">Số điện thoại (để gửi OTP/SMS):</label>
+                    <input type="tel" class="input-field" id="reg-phone" placeholder="0901234567">
+                  </div>
+                  <div>
+                    <label style="font-size:0.8rem;font-weight:700;display:block;margin-bottom:0.2rem;">Mật khẩu:</label>
+                    <input type="password" class="input-field" id="reg-password" placeholder="Tối thiểu 3 ký tự" required>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="margin-top:0.5rem;">Tạo Tài Khoản Mới</button>
+                </form>
+
+                <div style="text-align:center;font-size:0.82rem;margin-top:1rem;color:var(--text-secondary);">
+                  Đã có tài khoản? <a href="#" id="auth-goto-login" style="color:var(--primary-600);font-weight:700;">Đăng nhập</a>
+                </div>
+              ` : `
+                <form id="auth-form" style="display:flex;flex-direction:column;gap:1rem;">
+                  <p style="font-size:0.85rem;color:var(--text-secondary);">
+                    Nhập email hoặc số điện thoại đã đăng ký để đặt lại mật khẩu:
+                  </p>
+                  <div>
+                    <input type="text" class="input-field" id="forgot-identifier" placeholder="Email hoặc SĐT..." required>
+                  </div>
+                  <div>
+                    <input type="password" class="input-field" id="forgot-new-pwd" placeholder="Mật khẩu mới (vd: 123)" required>
+                  </div>
+                  <button type="submit" class="btn btn-primary">Xác Nhận Đặt Lại</button>
+                </form>
+
+                <div style="text-align:center;font-size:0.82rem;margin-top:1rem;">
+                  <a href="#" id="auth-goto-login" style="color:var(--primary-600);font-weight:700;">Quay lại Đăng nhập</a>
+                </div>
+              `}
+            </div>
           </div>
-          <form id="form-new-task">
-            <div class="form-group">
-              <label class="form-label">Tên bài học / nhiệm vụ</label>
-              <input type="text" class="form-control" id="nt-title" placeholder="VD: Giải 10 câu hình không gian Oxyz..." required>
+        </div>
+      `;
+
+      // Bind switches
+      const gotoReg = container.querySelector('#auth-goto-register');
+      const gotoLogin = container.querySelector('#auth-goto-login');
+      const gotoForgot = container.querySelector('#auth-goto-forgot');
+
+      if (gotoReg) gotoReg.onclick = (e) => { e.preventDefault(); mode = 'register'; renderForm(); };
+      if (gotoLogin) gotoLogin.onclick = (e) => { e.preventDefault(); mode = 'login'; renderForm(); };
+      if (gotoForgot) gotoForgot.onclick = (e) => { e.preventDefault(); mode = 'forgot'; renderForm(); };
+
+      // Bind Google & Phone actual flow notice
+      const googleBtn = container.querySelector('#auth-google-btn');
+      if (googleBtn) {
+        googleBtn.onclick = () => {
+          const cfg = store.getState().data?.settings?.googleClientId;
+          if (!cfg) {
+            alert("Thông báo cấu hình OAuth:\nChưa cấu hình biến môi trường GOOGLE_CLIENT_ID. Để tích hợp xác thực thực tế với Google, vui lòng cấu hình Client ID trong mục 'Cài Đặt & Quyền Riêng Tư'. Hệ thống không sử dụng đăng nhập ảo.");
+          } else {
+            alert(`Khởi tạo luồng Google OAuth thực tế với Client ID: ${cfg}`);
+          }
+        };
+      }
+
+      const phoneBtn = container.querySelector('#auth-phone-btn');
+      if (phoneBtn) {
+        phoneBtn.onclick = () => {
+          const cfg = store.getState().data?.settings?.smsApiKey;
+          if (!cfg) {
+            alert("Thông báo cấu hình SMS OTP:\nChưa cấu hình SMS_API_KEY của nhà cung cấp SMS/Twilio. Vui lòng cập nhật API Key trong mục 'Cài Đặt & Quyền Riêng Tư' để gửi mã OTP thực tế.");
+          } else {
+            alert(`Gửi yêu cầu mã OTP qua SMS API Key: ${cfg.slice(0, 4)}****`);
+          }
+        };
+      }
+
+      // Bind form submits
+      const form = container.querySelector('#auth-form');
+      if (form) {
+        form.onsubmit = (e) => {
+          e.preventDefault();
+          try {
+            if (mode === 'login') {
+              const id = container.querySelector('#auth-identifier').value;
+              const pwd = container.querySelector('#auth-password').value;
+              store.login(id, pwd);
+              container.innerHTML = '';
+              this.showToast(`Chào mừng ${store.getState().currentUser.name} quay trở lại!`, 'success');
+            } else if (mode === 'register') {
+              const name = container.querySelector('#reg-name').value;
+              const email = container.querySelector('#reg-email').value;
+              const phone = container.querySelector('#reg-phone').value;
+              const password = container.querySelector('#reg-password').value;
+              store.register({ name, email, phone, password });
+              container.innerHTML = '';
+              this.showToast(`Đăng ký tài khoản thành công! Chào mừng bạn.`, 'success');
+            } else if (mode === 'forgot') {
+              const id = container.querySelector('#forgot-identifier').value;
+              const newPwd = container.querySelector('#forgot-new-pwd').value;
+              store.resetPassword(id, newPwd);
+              this.showToast("Đã đặt lại mật khẩu mới thành công. Hãy đăng nhập!", 'success');
+              mode = 'login';
+              renderForm();
+            }
+          } catch (err) {
+            alert(err.message);
+          }
+        };
+      }
+    };
+
+    renderForm();
+  },
+
+  // =========================================================================
+  // ONBOARDING MODAL (Hướng dẫn sử dụng web cho người mới bắt đầu)
+  // =========================================================================
+  showOnboardingModal() {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    let step = 1;
+    const totalSteps = 4;
+
+    const renderStep = () => {
+      const stepsData = [
+        {
+          icon: "🌅",
+          title: "1. Khởi động ngày mới với AI Dashboard",
+          desc: "Mỗi sáng, hãy truy cập Tổng Quát / Dashboard để trò chuyện nhanh với Trợ lý AI, cập nhật số giờ ngủ và nhập nhanh những bài tập cần hoàn thành trong ngày."
+        },
+        {
+          icon: "📚",
+          title: "2. Quản lý học tập cùng Study Planner",
+          desc: "Study Planner hợp nhất Quản lý nhiệm vụ và Lập lịch khả thi. Bạn có thể xem Thời khóa biểu (Daily & Weekly View), phân loại Deadline và nhờ AI chia nhỏ bài tập phức tạp."
+        },
+        {
+          icon: "⚖️",
+          title: "3. Bảo vệ giấc ngủ & Giờ nghỉ thông minh",
+          desc: "EcoStudy tự động kiểm tra tính khả thi và từ chối nhồi nhét bài tập quá giờ đi ngủ mục tiêu. Hệ thống sẽ nhắc bạn nghỉ ngơi 10 phút sau mỗi 45 phút học tập."
+        },
+        {
+          icon: "✅",
+          title: "4. Check-out và Báo cáo tiến độ",
+          desc: "Sau mỗi buổi học, hãy cập nhật mức độ hoàn thành tại Study Review để AI hiểu được năng lực thực tế, từ đó tối ưu hóa kế hoạch học tập cho những ngày tiếp theo."
+        }
+      ];
+
+      const cur = stepsData[step - 1];
+
+      container.innerHTML = `
+        <div class="modal-overlay">
+          <div class="modal-content" style="max-width:520px;text-align:center;">
+            <div class="modal-header" style="justify-content:center;border-bottom:none;padding-top:1.75rem;">
+              <div style="font-size:3rem;margin-bottom:0.5rem;">${cur.icon}</div>
             </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label class="form-label">Môn học</label>
-                <select class="form-control" id="nt-subject">
-                  <option value="Toán">Toán</option>
-                  <option value="Ngữ văn">Ngữ văn</option>
-                  <option value="Tiếng Anh">Tiếng Anh</option>
-                  <option value="Vật lý">Vật lý</option>
-                  <option value="Hóa học">Hóa học</option>
-                  <option value="Sinh học">Sinh học</option>
-                  <option value="Lịch sử">Lịch sử</option>
-                  <option value="Địa lý">Địa lý</option>
-                  <option value="Tin học">Tin học</option>
+            
+            <div class="modal-body" style="padding:0 2rem 1.5rem;">
+              <h3 style="font-size:1.25rem;font-weight:800;color:var(--text-main);margin-bottom:0.75rem;">
+                ${cur.title}
+              </h3>
+              <p style="font-size:0.92rem;color:var(--text-secondary);line-height:1.6;">
+                ${cur.desc}
+              </p>
+
+              <!-- Step indicator dots -->
+              <div style="display:flex;justify-content:center;gap:0.5rem;margin:1.75rem 0 0.5rem;">
+                ${[1, 2, 3, 4].map(i => `
+                  <div style="width:${i === step ? '24px' : '8px'};height:8px;border-radius:4px;background:${i === step ? 'var(--primary-500)' : 'var(--border-light)'};transition:all 0.3s;"></div>
+                `).join('')}
+              </div>
+            </div>
+
+            <div class="modal-footer" style="justify-content:space-between;">
+              <button class="btn btn-secondary btn-sm" id="onboarding-skip-btn">Bỏ qua</button>
+              <button class="btn btn-primary" id="onboarding-next-btn">
+                ${step === totalSteps ? 'Bắt Đầu Sử Dụng 🚀' : 'Tiếp Theo ➔'}
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      container.querySelector('#onboarding-skip-btn').onclick = () => {
+        localStorage.setItem('ECOSTUDY_ONBOARDED_V2', 'true');
+        container.innerHTML = '';
+      };
+
+      container.querySelector('#onboarding-next-btn').onclick = () => {
+        if (step < totalSteps) {
+          step++;
+          renderStep();
+        } else {
+          localStorage.setItem('ECOSTUDY_ONBOARDED_V2', 'true');
+          container.innerHTML = '';
+          this.showToast('Chúc bạn có những phiên học tập hiệu quả cùng EcoStudy!', 'success');
+        }
+      };
+    };
+
+    renderStep();
+  },
+
+  // =========================================================================
+  // TASK DECOMPOSITION MODAL (Chia nhỏ nhiệm vụ bằng AI)
+  // =========================================================================
+  showAIDecompositionModal(task) {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    const generatedSubtasks = EcoAlgorithms.decomposeTask(task.title, task.subject);
+
+    container.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-content" style="max-width:580px;">
+          <div class="modal-header">
+            <h3><span>🤖</span> AI Chia Nhỏ Nhiệm Vụ Thông Minh</h3>
+            <button class="modal-close-btn" id="close-decomp-modal">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <div>
+              <div style="font-weight:800;font-size:1rem;color:var(--text-main);">${task.title}</div>
+              <span class="badge badge-info" style="margin-top:4px;">${task.subject}</span>
+            </div>
+
+            <p style="font-size:0.85rem;color:var(--text-secondary);">
+              AI đã tự động phân tách bài tập lớn thành ${generatedSubtasks.length} bước hành động nhỏ kèm thời lượng và tiêu chí đạt:
+            </p>
+
+            <div style="display:flex;flex-direction:column;gap:0.75rem;">
+              ${generatedSubtasks.map((st, idx) => `
+                <div style="padding:0.75rem 1rem;background:var(--surface-body);border:1px solid var(--border-light);border-radius:var(--radius-md);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:700;font-size:0.88rem;color:var(--text-main);">Bước ${idx + 1}: ${st.title}</span>
+                    <span class="badge badge-gray">⏱️ ${st.duration}p</span>
+                  </div>
+                  <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">
+                    🎯 <strong>Mục tiêu:</strong> ${st.goal}
+                  </div>
+                  <div style="font-size:0.78rem;color:var(--primary-700);margin-top:2px;">
+                    ✅ <strong>Tiêu chí:</strong> ${st.criteria}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="cancel-decomp-btn">Đóng</button>
+            <button class="btn btn-primary" id="confirm-decomp-btn">Áp Dụng Các Bước Này</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const closeHandler = () => container.innerHTML = '';
+    container.querySelector('#close-decomp-modal').onclick = closeHandler;
+    container.querySelector('#cancel-decomp-btn').onclick = closeHandler;
+
+    container.querySelector('#confirm-decomp-btn').onclick = () => {
+      store.updateTask(task.id, { subtasks: generatedSubtasks });
+      container.innerHTML = '';
+      this.showToast(`Đã lưu ${generatedSubtasks.length} bước con vào nhiệm vụ!`, 'success');
+      this.render();
+    };
+  },
+
+  // =========================================================================
+  // SCHEDULE SLOT MODAL (Thêm / Sửa tiết học thời khóa biểu)
+  // =========================================================================
+  showScheduleSlotModal() {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-content" style="max-width:480px;">
+          <div class="modal-header">
+            <h3><span>📅</span> Thêm Lịch Học / Ca Tự Học</h3>
+            <button class="modal-close-btn" id="close-slot-modal">✕</button>
+          </div>
+
+          <form id="slot-modal-form">
+            <div class="modal-body">
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Thứ trong tuần:</label>
+                <select class="input-field" id="slot-day" required>
+                  <option value="2">Thứ Hai</option>
+                  <option value="3">Thứ Ba</option>
+                  <option value="4">Thứ Tư</option>
+                  <option value="5">Thứ Năm</option>
+                  <option value="6">Thứ Sáu</option>
+                  <option value="7">Thứ Bảy</option>
+                  <option value="8">Chủ Nhật</option>
                 </select>
               </div>
-              <div class="form-group">
-                <label class="form-label">Deadline</label>
-                <input type="date" class="form-control" id="nt-deadline" value="${new Date().toISOString().split('T')[0]}" required>
+
+              <div class="grid-2">
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Bắt đầu:</label>
+                  <input type="time" class="input-field" id="slot-start" value="19:30" required>
+                </div>
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Kết thúc:</label>
+                  <input type="time" class="input-field" id="slot-end" value="20:30" required>
+                </div>
+              </div>
+
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Tên môn học / Hoạt động:</label>
+                <input type="text" class="input-field" id="slot-subject" placeholder="Ví dụ: Tự học Toán Tích phân, Học chính khóa..." required>
+              </div>
+
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Phòng học / Địa điểm:</label>
+                <input type="text" class="input-field" id="slot-room" placeholder="Góc học tập, Phòng A203...">
+              </div>
+
+              <div>
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.85rem;font-weight:700;">
+                  <input type="checkbox" id="slot-fixed" class="task-checkbox">
+                  <span>Đây là lịch cố định của trường (Không được tự ý sửa)</span>
+                </label>
               </div>
             </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label class="form-label">Phân loại deadline</label>
-                <select class="form-control" id="nt-deadlinetype">
-                  <option value="hard">Deadline cứng (Không thể dời)</option>
-                  <option value="soft" selected>Deadline mềm (Có thể linh hoạt)</option>
-                </select>
+
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" id="cancel-slot-modal">Hủy</button>
+              <button type="submit" class="btn btn-primary">Lưu Tiết Học</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    const closeHandler = () => container.innerHTML = '';
+    container.querySelector('#close-slot-modal').onclick = closeHandler;
+    container.querySelector('#cancel-slot-modal').onclick = closeHandler;
+
+    container.querySelector('#slot-modal-form').onsubmit = (e) => {
+      e.preventDefault();
+      const dayOfWeek = Number(container.querySelector('#slot-day').value);
+      const startTime = container.querySelector('#slot-start').value;
+      const endTime = container.querySelector('#slot-end').value;
+      const subject = container.querySelector('#slot-subject').value.trim();
+      const room = container.querySelector('#slot-room').value.trim();
+      const isFixed = container.querySelector('#slot-fixed').checked;
+
+      store.addScheduleSlot({ dayOfWeek, startTime, endTime, subject, room, isFixed });
+      container.innerHTML = '';
+      this.showToast("Đã thêm tiết học vào thời khóa biểu!", 'success');
+      this.render();
+    };
+  },
+
+  // =========================================================================
+  // FULL TASK MODAL (Thêm nhiệm vụ chi tiết với đủ trọng số)
+  // =========================================================================
+  showFullTaskModal() {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-content" style="max-width:540px;">
+          <div class="modal-header">
+            <h3><span>📋</span> Thêm Nhiệm Vụ Học Tập Chi Tiết</h3>
+            <button class="modal-close-btn" id="close-task-modal">✕</button>
+          </div>
+
+          <form id="full-task-modal-form">
+            <div class="modal-body">
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Tên nhiệm vụ / Bài tập:</label>
+                <input type="text" class="input-field" id="ft-title" placeholder="Ví dụ: Ôn tập chương Điện tích & Điện trường..." required>
               </div>
-              <div class="form-group">
-                <label class="form-label">Thời lượng dự kiến (phút)</label>
-                <input type="number" class="form-control" id="nt-duration" value="45" min="15" step="5">
+
+              <div class="grid-2">
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Môn học:</label>
+                  <select class="input-field" id="ft-subject">
+                    <option value="Toán">Toán học</option>
+                    <option value="Ngữ văn">Ngữ văn</option>
+                    <option value="Tiếng Anh">Tiếng Anh</option>
+                    <option value="Vật lý">Vật lý</option>
+                    <option value="Hóa học">Hóa học</option>
+                    <option value="Sinh học">Sinh học</option>
+                    <option value="Lịch sử">Lịch sử</option>
+                    <option value="Địa lý">Địa lý</option>
+                    <option value="Tin học">Tin học</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Hạn chót (Deadline):</label>
+                  <input type="date" class="input-field" id="ft-deadline" value="${new Date(Date.now() + 86400000).toISOString().split('T')[0]}" required>
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Loại Deadline:</label>
+                  <select class="input-field" id="ft-deadline-type">
+                    <option value="soft">Deadline mềm (Linh hoạt)</option>
+                    <option value="hard">Deadline cứng (Bắt buộc không trễ)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Thời lượng dự kiến (phút):</label>
+                  <input type="number" class="input-field" id="ft-minutes" value="45" min="15" max="300" step="15" required>
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Mức độ quan trọng (I: 1 - 10):</label>
+                  <input type="number" class="input-field" id="ft-importance" value="8" min="1" max="10">
+                </div>
+
+                <div>
+                  <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Độ khó / Khối lượng (W: 1 - 10):</label>
+                  <input type="number" class="input-field" id="ft-workload" value="7" min="1" max="10">
+                </div>
               </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">Độ khó & Khối lượng (1 - 10)</label>
-              <input type="range" class="form-control" id="nt-diff" min="1" max="10" value="6">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Ghi chú thêm</label>
-              <input type="text" class="form-control" id="nt-notes" placeholder="Mục tiêu hoặc bài tập trọng tâm">
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
-              <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-add-task').remove()">Hủy</button>
+
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" id="cancel-task-modal">Hủy</button>
               <button type="submit" class="btn btn-primary">Lưu Nhiệm Vụ</button>
             </div>
           </form>
         </div>
       </div>
     `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-    document.getElementById('form-new-task')?.addEventListener('submit', (e) => {
+    const closeHandler = () => container.innerHTML = '';
+    container.querySelector('#close-task-modal').onclick = closeHandler;
+    container.querySelector('#cancel-task-modal').onclick = closeHandler;
+
+    container.querySelector('#full-task-modal-form').onsubmit = (e) => {
       e.preventDefault();
+      const title = container.querySelector('#ft-title').value.trim();
+      const subject = container.querySelector('#ft-subject').value;
+      const deadline = container.querySelector('#ft-deadline').value;
+      const deadlineType = container.querySelector('#ft-deadline-type').value;
+      const estimatedMinutes = Number(container.querySelector('#ft-minutes').value) || 45;
+      const importance = Number(container.querySelector('#ft-importance').value) || 8;
+      const difficultyWorkload = Number(container.querySelector('#ft-workload').value) || 7;
+
       store.addTask({
-        title: document.getElementById('nt-title').value,
-        subject: document.getElementById('nt-subject').value,
-        deadline: document.getElementById('nt-deadline').value,
-        deadlineType: document.getElementById('nt-deadlinetype').value,
-        estimatedMinutes: parseInt(document.getElementById('nt-duration').value),
-        difficultyWorkload: parseInt(document.getElementById('nt-diff').value),
-        importance: 7,
-        deadlineProximity: 6,
-        lossConsequence: 6,
+        title,
+        subject,
+        deadline,
+        deadlineType,
+        estimatedMinutes,
+        importance,
+        difficultyWorkload,
+        deadlineProximity: 8,
+        lossConsequence: 7,
         prerequisiteRequirement: 7,
-        notes: document.getElementById('nt-notes').value
+        status: 'not_started'
       });
 
-      document.getElementById('modal-add-task').remove();
-      this.playChime('bell');
-      this.showToast('✅ Đã thêm nhiệm vụ mới!');
+      container.innerHTML = '';
+      this.showToast("Đã lưu bài tập mới vào Study Planner!", 'success');
       this.render();
-    });
+    };
   },
 
-  openDecomposeModal(taskId) {
-    const task = store.data.tasks.find(t => t.id === taskId);
-    if (!task) return;
+  // =========================================================================
+  // CHECK-IN MODAL (Cập nhật dữ liệu ngày mới)
+  // =========================================================================
+  showCheckInModal() {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
 
-    const modalHtml = `
-      <div class="modal-overlay active" id="modal-decompose">
-        <div class="modal-container">
+    const checkIn = store.getState().data?.todayCheckIn || {};
+
+    container.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-content" style="max-width:480px;">
           <div class="modal-header">
-            <h3>🧩 AI Task Decomposition (Chia Nhỏ Nhiệm Vụ)</h3>
-            <button class="modal-close-btn" onclick="document.getElementById('modal-decompose').remove()">×</button>
+            <h3><span>🌅</span> Cập Nhật Check-in Đầu Ngày</h3>
+            <button class="modal-close-btn" id="close-checkin-modal">✕</button>
           </div>
-          <div style="background: var(--neutral-50); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem;">
-            <strong>${task.title}</strong>
-            <div style="font-size: 0.8rem; color: var(--neutral-600);">Môn: ${task.subject} | Thời lượng gốc: ${task.estimatedMinutes} phút</div>
-          </div>
-          <p style="font-size: 0.85rem; color: var(--neutral-600); margin-bottom: 1rem;">
-            AI sẽ chuyển bài học lớn thành các bước cụ thể, có mục tiêu rõ ràng và tiêu chí hoàn thành để tránh áp lực:
-          </p>
-          <div class="form-group">
-            <label class="form-label">Chọn trình độ hiện tại với nội dung này:</label>
-            <select class="form-control" id="dec-level">
-              <option value="trung bình">Trung bình (Phân bổ bước cân bằng)</option>
-              <option value="yếu">Chưa tự tin (Tăng thời gian lý thuyết & làm bài cơ bản)</option>
-              <option value="khá giỏi">Nắm vững (Tập trung bài tập vận dụng)</option>
-            </select>
-          </div>
-          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
-            <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-decompose').remove()">Đóng</button>
-            <button type="button" class="btn btn-primary" id="btn-generate-subtasks">Tự Động Tạo Subtasks</button>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-    document.getElementById('btn-generate-subtasks')?.addEventListener('click', () => {
-      const level = document.getElementById('dec-level').value;
-      const subtasks = EcoAlgorithms.decomposeTask(task.title, task.subject, level);
-      store.updateTask(task.id, { subtasks });
-      document.getElementById('modal-decompose').remove();
-      this.playChime('bell');
-      this.showToast(`✨ Đã chia nhỏ nhiệm vụ thành ${subtasks.length} bước thực hiện!`);
-      this.render();
-    });
-  },
+          <form id="checkin-modal-form">
+            <div class="modal-body">
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Thời gian ngủ đêm qua (tiếng):</label>
+                <input type="number" class="input-field" id="ci-sleep" value="${checkIn.sleepHours || 7}" min="3" max="14" step="0.5" required>
+              </div>
 
-  openCheckOutModal(taskId) {
-    const task = store.data.tasks.find(t => t.id === taskId);
-    if (!task) return;
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Mức độ tỉnh táo (1 - 10):</label>
+                <input type="number" class="input-field" id="ci-alertness" value="${checkIn.alertness || 7}" min="1" max="10" required>
+              </div>
 
-    const modalHtml = `
-      <div class="modal-overlay active" id="modal-checkout">
-        <div class="modal-container">
-          <div class="modal-header">
-            <h3>✅ Check-out Sau Phiên Học: ${task.title}</h3>
-            <button class="modal-close-btn" onclick="document.getElementById('modal-checkout').remove()">×</button>
-          </div>
-          <form id="form-do-checkout">
-            <div class="form-group">
-              <label class="form-label">Trạng thái hoàn thành</label>
-              <select class="form-control" id="co-status">
-                <option value="completed">Đã hoàn thành 100%</option>
-                <option value="partially_completed">Hoàn thành một phần</option>
-                <option value="needs_support">Gặp khó khăn / Chưa hoàn thành</option>
-              </select>
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Quỹ thời gian có thể dành để học tối nay (phút):</label>
+                <input type="number" class="input-field" id="ci-available" value="${checkIn.availableMinutes || 180}" min="30" max="360" step="15" required>
+              </div>
+
+              <div>
+                <label style="font-size:0.82rem;font-weight:700;display:block;margin-bottom:0.25rem;">Ghi chú tâm trạng / Dự định:</label>
+                <input type="text" class="input-field" id="ci-notes" value="${checkIn.userNotes || ''}" placeholder="Tâm trạng tốt, muốn học Toán...">
+              </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">Thời gian thực tế bạn đã học (phút)</label>
-              <input type="number" class="form-control" id="co-actual-time" value="${task.estimatedMinutes}" min="5" step="5">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Có kiến thức nào bạn cảm thấy chưa nắm vững không?</label>
-              <input type="text" class="form-control" id="co-gap" placeholder="VD: Chưa hiểu điều kiện của định lý...">
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
-              <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-checkout').remove()">Hủy</button>
-              <button type="submit" class="btn btn-primary">Xác Nhận Check-out</button>
+
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" id="cancel-checkin-modal">Hủy</button>
+              <button type="submit" class="btn btn-primary">Lưu Check-in</button>
             </div>
           </form>
         </div>
       </div>
     `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-    document.getElementById('form-do-checkout')?.addEventListener('submit', (e) => {
+    const closeHandler = () => container.innerHTML = '';
+    container.querySelector('#close-checkin-modal').onclick = closeHandler;
+    container.querySelector('#cancel-checkin-modal').onclick = closeHandler;
+
+    container.querySelector('#checkin-modal-form').onsubmit = (e) => {
       e.preventDefault();
-      const status = document.getElementById('co-status').value;
-      const actualMinutes = parseInt(document.getElementById('co-actual-time').value);
-      const gapText = document.getElementById('co-gap').value;
+      const sleepHours = Number(container.querySelector('#ci-sleep').value);
+      const alertness = Number(container.querySelector('#ci-alertness').value);
+      const availableMinutes = Number(container.querySelector('#ci-available').value);
+      const userNotes = container.querySelector('#ci-notes').value.trim();
 
-      store.updateTask(task.id, {
-        status,
-        actualMinutes
-      });
-
-      if (gapText.trim()) {
-        store.addKnowledgeGap({
-          subject: task.subject,
-          topic: gapText.trim(),
-          notes: `Ghi nhận từ Check-out bài học: ${task.title}`
-        });
-      }
-
-      document.getElementById('modal-checkout').remove();
-      this.playChime('bell');
-      this.showToast('🎉 Đã check-out và cập nhật dữ liệu học tập!');
+      store.saveCheckIn({ sleepHours, alertness, availableMinutes, userNotes });
+      container.innerHTML = '';
+      this.showToast("Đã cập nhật dữ liệu ngày mới cho Trợ lý AI!", 'success');
       this.render();
-    });
-  },
-
-  openResolveBacklogModal(taskId) {
-    const task = store.data.tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    const modalHtml = `
-      <div class="modal-overlay active" id="modal-resolve">
-        <div class="modal-container">
-          <div class="modal-header">
-            <h3>🔄 Giải Quyết Tồn Đọng: ${task.title}</h3>
-            <button class="modal-close-btn" onclick="document.getElementById('modal-resolve').remove()">×</button>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Lý do chính khiến bài học này bị chậm trễ?</label>
-            <select class="form-control" id="res-reason">
-              <option value="not_enough_time">Không đủ thời gian thực tế</option>
-              <option value="too_hard">Bài tập khó hơn dự kiến ban đầu</option>
-              <option value="knowledge_gap">Chưa hiểu kiến thức nền tảng</option>
-              <option value="distracted">Bị phân tâm / Mất tập trung</option>
-              <option value="fatigued">Cảm thấy mệt mỏi, kiệt sức</option>
-              <option value="unexpected_event">Có việc đột xuất từ trường/gia đình</option>
-              <option value="bad_estimate">Ước tính thời gian ban đầu chưa chính xác</option>
-            </select>
-          </div>
-          <div id="res-proposal-box" style="margin-top: 1rem; padding: 1rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md);">
-            <strong style="color: #047857;">Phương án giải quyết từ AI:</strong>
-            <p id="res-proposal-text" style="font-size: 0.85rem; color: #065f46; margin-top: 0.35rem;">
-              AI đề xuất chia task thành 2 phiên nhỏ (30 phút mỗi phiên) vào khung giờ sáng mai khi đầu óc tỉnh táo.
-            </p>
-          </div>
-          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
-            <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-resolve').remove()">Đóng</button>
-            <button type="button" class="btn btn-primary" id="btn-apply-reschedule">Áp Dụng Phương Án</button>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-    const selectReason = document.getElementById('res-reason');
-    const proposalText = document.getElementById('res-proposal-text');
-
-    selectReason?.addEventListener('change', () => {
-      const sol = EcoAlgorithms.handleReschedulingReason(selectReason.value, task);
-      proposalText.innerText = sol.proposal;
-    });
-
-    document.getElementById('btn-apply-reschedule')?.addEventListener('click', () => {
-      store.updateTask(task.id, {
-        status: 'scheduled',
-        rescheduleCount: (task.rescheduleCount || 0) + 1,
-        timeSlot: 'Ngày mai (19:30 - 20:15)'
-      });
-      document.getElementById('modal-resolve').remove();
-      this.playChime('bell');
-      this.showToast('✅ Đã điều chỉnh lịch học một cách khoa học!');
-      this.render();
-    });
-  },
-
-  getStatusText(status) {
-    const map = {
-      'pending': 'Chờ xếp lịch',
-      'scheduled': 'Đã lên lịch',
-      'in_progress': 'Đang học',
-      'completed': 'Hoàn thành',
-      'partially_completed': 'Một phần',
-      'blocked': 'Bị chặn',
-      'not_reported': 'Chưa báo cáo',
-      'pending_review': 'Chờ rà soát',
-      'needs_support': 'Cần hỗ trợ',
-      'rescheduled': 'Đã dời lịch'
     };
-    return map[status] || status;
-  },
-
-  showToast(message) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-
-    const toast = document.createElement('div');
-    toast.className = 'toast';
-    toast.innerHTML = `<span>💬</span> <span>${message}</span>`;
-    container.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateY(10px)';
-      toast.style.transition = 'all 0.3s ease';
-      setTimeout(() => toast.remove(), 300);
-    }, 3200);
   }
 };

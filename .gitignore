@@ -3,9 +3,10 @@ node_modules/
 
 # Temporary & Log files
 *.log
-extracted_content.txt
+_backup_initial/
+docx_media/
+*.txt
 
 # OS metadata
 .DS_Store
 Thumbs.db
-

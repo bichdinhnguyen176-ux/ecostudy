@@ -1,90 +1,91 @@
-# 🌱 EcoStudy – Trợ Lý AI Đồng Hành Cùng Học Sinh
+# 🌱 EcoStudy 2.0 – Trợ Lý AI Đồng Hành Cùng Học Sinh
 
 > **Thông điệp cốt lõi:** *"Learn Smart. Rest Well. Grow Better."*
 
-EcoStudy là nền tảng web ứng dụng trí tuệ nhân tạo (AI) để trở thành trợ lý học tập cá nhân hóa cho học sinh THPT, hỗ trợ quản lý thời gian, chia nhỏ nhiệm vụ khó, theo dõi lỗ hổng kiến thức và **bảo vệ cân bằng giữa việc học với nghỉ ngơi, giấc ngủ**.
+EcoStudy là nền tảng web ứng dụng trí tuệ nhân tạo (AI) để trở thành trợ lý học tập cá nhân hóa cho học sinh THPT, hỗ trợ quản lý thời gian, tổ chức bài tập, lập lịch khả thi, nhận diện nguy cơ trễ hạn và **bảo vệ cân bằng giữa việc học với nghỉ ngơi, giấc ngủ**.
 
 ---
 
-## 🎯 12 Chức Năng Cốt Lõi Đã Được Xây Dựng Đầy Đủ
+## 🎯 Cấu Trúc Điều Hướng & 5 Phân Hệ Chính (EcoStudy 2.0)
 
-1. **Check-in đầu ngày (AI Companion):**
-   - Trò chuyện ân cần, thu thập dữ liệu về giấc ngủ, mức độ tỉnh táo (1-10), mức độ áp lực và thời gian khả dụng.
-   - Tránh gây cảm giác bị khảo sát bằng các thẻ chọn nhanh (Quick-pick chips).
+Theo các yêu cầu nâng cấp mới nhất trong tài liệu `LỖI CẦN SỬA Ở WEB.docx` và `DỰ ÁN.docx`, EcoStudy 2.0 được tổ chức lại theo 5 phân hệ chuẩn:
 
-2. **Phân tích tính khả thi & Lập lịch cá nhân hóa (AI + Rule + Scheduling Engine):**
-   - Áp dụng công thức tính điểm ưu tiên chuẩn:
-     $$P = 0.30D + 0.25I + 0.20W + 0.15L + 0.10R$$
-     *(D: Deadline, I: Quan trọng, W: Khó/Khối lượng, L: Hậu quả nếu trễ, R: Kiến thức nền tảng)*
-   - AI giải thích rõ ràng lý do ưu tiên từng nhiệm vụ cho học sinh.
-   - **Quy tắc bất khả xâm phạm:** Không nhồi nhét; cảnh báo quá tải (Overload Alert) nếu tổng thời gian học + nghỉ ngơi vượt quá thời gian khả dụng; bảo vệ tuyệt đối giờ ngủ (Sleep Shield).
+1. **Tổng Quát / Dashboard (Trang Chủ Sau Khi Đăng Nhập):**
+   - **Check-in đầu ngày & AI Chatbot làm trung tâm tương tác:** Trò chuyện tự nhiên, hỏi thăm tình trạng sức khỏe, giấc ngủ đêm qua, mức độ tỉnh táo và kế hoạch bài tập hôm nay. Cho phép học sinh trả lời bằng tin nhắn hoặc các nút chọn nhanh (Quick choices).
+   - **Thanh nhập nhiệm vụ nhanh (Quick Add Task):** Nhập tên bài tập, môn học, deadline, mức độ quan trọng (Đỏ/Vàng/Xanh) và thời lượng dự kiến; tự động phân tích điểm ưu tiên và đồng bộ ngay vào Study Planner.
+   - **Nhiệm vụ cần ưu tiên hôm nay:** Tính toán theo công thức chuẩn $P = 0.30D + 0.25I + 0.20W + 0.15L + 0.10R$, **AI giải thích lý do ưu tiên bằng các gạch đầu dòng ngắn gọn, trực quan, dễ nhìn**.
+   - **Đánh giá tính khả thi (Feasibility Engine):** So sánh tổng thời gian cần vs quỹ thời gian khả dụng trước giờ ngủ; cảnh báo quá tải nếu vượt quá để bảo vệ sức khỏe học sinh.
+   - **Thời khóa biểu trong ngày (Daily Mini-Agenda):** Hiển thị các ca học chính khóa và ca tự học.
 
-3. **Chia nhỏ nhiệm vụ thông minh (Smart Task Decomposition):**
-   - Tự động phân rã các bài học lớn (Toán, Văn, Lý, Hóa, Tiếng Anh...) thành các bước nhỏ với mục tiêu, thời lượng dự kiến và tiêu chí hoàn thành cụ thể.
+2. **Quản Lý Học Tập / Study Planner (Hợp Nhất Quản Lý Nhiệm Vụ & Lập Lịch):**
+   Gồm 5 mục con chuyển tab mượt mà:
+   - **Overview:** Thống kê trực quan số lượng nhiệm vụ (Hoàn thành, Đang làm, Quá hạn), phân tích tính khả thi và thanh tiến độ môn học.
+   - **Thời Khóa Biểu:** Hỗ trợ 2 chế độ xem: **Daily View** (xem lịch theo timeline giờ) và **Weekly View** (xem cả tuần từ Thứ 2 đến Chủ Nhật). Cho phép thêm, sửa, xóa tiết học, phát hiện trùng lịch và nhận diện các khoảng thời gian trống (Free slots).
+   - **Bài Tập & Deadlines:** Phân loại theo môn học, thời hạn và trạng thái; tích hợp **AI Chia nhỏ nhiệm vụ (Task Decomposition)** thành các bước hành động cụ thể kèm mục tiêu và tiêu chí đạt; gạch đầu dòng giải thích điểm ưu tiên.
+   - **Backlog Manager (Xử Lý Tồn Đọng):** Phân loại nhiệm vụ quá hạn và chưa thực hiện; phân tích nguyên nhân (thiếu thời gian, quá khó, mất tập trung, mệt mỏi...); AI đề xuất phương án sắp xếp lại lịch thông minh; có nút **Xác nhận kế hoạch mới**.
+   - **Study Review (Check-out Tích Hợp):** Sau mỗi phiên học, học sinh cập nhật mức độ hoàn thành (%), thời gian thực tế, khó khăn gặp phải và kiến thức chưa nắm vững để AI hiệu chỉnh hệ số thời gian.
 
-4. **Ôn tập ngắt quãng & Quản lý lỗ hổng kiến thức (Active Recall & Spaced Repetition):**
-   - Thẻ nhớ tương tác (Flashcard 3D flip) với 5 cấp độ ghi nhớ để tính toán chu kỳ lặp lại tối ưu (1 ngày, 2 ngày, 4 ngày, 7 ngày, 14 ngày).
-   - *Knowledge Gap Tracking:* Lưu trữ lỗi sai thường gặp để nhắc nhở củng cố.
+3. **Sức Khỏe & Giấc Ngủ (Smart Rest & Sleep Shield):**
+   - Hệ thống nhắc nhở giờ nghỉ thông minh: Dựa trên giờ ngủ do học sinh thiết lập, thời gian ngủ thực tế, độ tỉnh táo, mức độ mệt mỏi và thời lượng học liên tục.
+   - Đồng hồ Pomodoro 25/5 tương tác có âm thanh chuông báo (Audio Synthesizer Chime).
+   - Cảnh báo bảo vệ giấc ngủ khoa học, không hy sinh giờ ngủ để chạy deadline.
 
-5. **Theo dõi xu hướng mệt mỏi & Bảo vệ thời gian nghỉ (Rest Shield):**
-   - Tự động phân loại 3 trạng thái: *Bình thường*, *Cần điều chỉnh*, *Cần nghỉ ngơi*.
-   - Đồng hồ Pomodoro 25/5 thông minh hỗ trợ nghỉ giải lao, thư giãn mắt và giãn cơ.
+4. **Báo Cáo Học Tập (Weekly Analytics):**
+   - Thống kê tỷ lệ hoàn thành, tỷ lệ đúng deadline, tổng thời gian học (dự kiến vs thực tế), số nhiệm vụ bị dời lịch và phân bổ thời gian theo môn học.
+   - AI đưa ra nhận xét và đề xuất cải thiện có căn cứ dựa trên số liệu thực tế đã ghi nhận.
 
-6. **Quản lý nhiệm vụ tồn đọng & Tự động điều chỉnh lịch (Backlog Engine):**
-   - Hỗ trợ 10 trạng thái nhiệm vụ (*Pending, Scheduled, In Progress, Completed, Partially Completed, Blocked, Not Reported, Pending Review, Needs Support, Rescheduled*).
-   - Tuyệt đối không dời máy móc sang ngày mai; phân tích 7 nhóm nguyên nhân (khó, mất tập trung, mệt mỏi, thiếu kiến thức nền...) và đưa ra giải pháp xử lý.
-
-7. **Check-out sau mỗi phiên học:**
-   - Cập nhật thời gian thực tế, phát hiện lỗ hổng kiến thức và đưa trực tiếp vào Kho kiến thức cần ôn tập.
-
-8. **Báo cáo tiến độ hàng tuần (Weekly Analytics):**
-   - Thống kê tỷ lệ hoàn thành, tỷ lệ đúng hạn, biểu đồ thời gian theo từng môn học và lời khuyên cá nhân hóa từ AI.
-
-9. **Dự đoán nguy cơ trễ deadline:**
-   - Cảnh báo rủi ro (Cao / Trung bình / An toàn) dựa trên tiến độ và thời gian còn lại.
-
-10. **Chế độ học tập linh hoạt (Flexible Modes):**
-    - 4 chế độ thích ứng: *Ngày bình thường*, *Ngày ít năng lượng*, *Ngày cần nghỉ ngơi*, *Chế độ ôn thi*.
-
-11. **Nhật ký học tập & Tự đánh giá (Reflective Journal):**
-    - 5 câu hỏi phản chiếu cuối ngày giúp học sinh rèn luyện năng lực tự học bền vững mà không bị phụ thuộc vào AI.
-
-12. **Cổng Phụ Huynh & Nhà Trường (Role-Based Access):**
-    - Phân quyền nghiêm ngặt: Phụ huynh xem báo cáo tổng quát được cho phép; **tuyệt đối không chia sẻ nhật ký cá nhân**.
-    - Nhà trường xem báo cáo giáo dục ẩn danh; **không dùng mức độ mệt mỏi để xếp hạng học sinh**.
+5. **Cài Đặt & Quyền Riêng Tư:**
+   - **Giao diện Sáng / Tối:** Chế độ Sáng sử dụng màu nền xanh lơ rất nhạt (`#f0f7f6`) kết hợp thẻ trắng và màu nhấn xanh lá nhận diện. Chế độ Tối có độ tương phản cao, êm mắt khi học ban đêm.
+   - **Hệ thống thông báo:** Bật/tắt thông báo In-app, Email, SMS; cấu hình biến môi trường và khóa API thực tế (`GOOGLE_CLIENT_ID`, `SMS_API_KEY`).
+   - **Hồ sơ cá nhân & Quản lý dữ liệu:** Xuất dữ liệu học tập ra file JSON, đặt lại dữ liệu mặc định, bảo vệ sự cô lập giữa các tài khoản.
 
 ---
 
-## 🚀 Cách Khởi Chạy Website Trực Tiếp
+## 🔐 Tài Khoản Đăng Nhập Thử Nghiệm
 
-Dự án được xây dựng với cấu trúc độc lập (zero-dependency, không cần cài đặt thêm gói npm từ bên ngoài). Bạn có thể mở và sử dụng ngay lập tức:
+Hệ thống hỗ trợ quản lý đa tài khoản độc lập trong LocalStorage. Dữ liệu của từng tài khoản được lưu riêng biệt:
 
-### Cách 1: Khởi chạy bằng Node.js Server tích hợp sẵn
-Mở Terminal tại thư mục `c:\eco study` và chạy:
+- **Tài khoản mẫu có sẵn:**
+  - **Email:** `minhkhoa@ecostudy.edu.vn`
+  - **Mật khẩu:** `123`
+  - *(Tài khoản này đã có sẵn dữ liệu nhiệm vụ, thời khóa biểu và lịch sử học tập phong phú để bạn kiểm thử ngay lập tức).*
+- **Đăng ký tài khoản mới:** Bạn có thể bấm "Đăng ký miễn phí" trong modal Đăng nhập để tạo thêm tài khoản riêng.
+
+---
+
+## 🚀 Hướng Dẫn Khởi Chạy Website
+
+Dự án không có phụ thuộc phức tạp, bạn có thể chạy bằng Python hoặc Node.js:
+
+### Cách 1: Chạy bằng Python (Khuyến nghị trên máy đã cài Python)
+Mở PowerShell tại thư mục dự án và chạy:
+```powershell
+python server.py
+```
+Sau đó mở trình duyệt và truy cập: **http://localhost:3000**
+
+### Cách 2: Chạy bằng Node.js (nếu máy đã cài Node.js)
 ```powershell
 node server.js
 ```
-Truy cập trình duyệt tại địa chỉ: **http://localhost:3000**
-
-### Cách 2: Mở trực tiếp file HTML
-Bạn có thể nhấp đúp trực tiếp vào file `index.html` trong thư mục `c:\eco study` bằng trình duyệt Chrome, Edge hoặc Cốc Cốc.
 
 ---
 
 ## 📁 Cấu Trúc Mã Nguồn
 
 ```
-c:\eco study\
-├── DỰ ÁN.docx                 # Tài liệu đặc tả yêu cầu gốc
-├── index.html                 # Giao diện chính của ứng dụng
-├── server.js                  # Máy chủ Node.js cục bộ
-├── README.md                  # Hướng dẫn và tài liệu dự án
-├── styles\
-│   └── main.css               # Hệ thống thiết kế Eco-friendly UI
-└── scripts\
-    ├── algorithms.js          # Thuật toán tính điểm P, Feasibility, Spaced Repetition, Fatigue
-    ├── state.js               # Quản lý dữ liệu LocalStorage & Dữ liệu mẫu học sinh
-    ├── ui.js                  # Render động 15 màn hình giao diện và xử lý tương tác
-    └── app.js                 # Điểm khởi chạy ứng dụng
+c:\Users\SPB\Desktop\VY\ECOSTUDY\
+├── DỰ ÁN.docx                 # Tài liệu đặc tả nghiệp vụ và kiến trúc gốc
+├── LỖI CẦN SỬA Ở WEB.docx     # Tài liệu yêu cầu chỉnh sửa và cải tiến giao diện
+├── index.html                 # Giao diện chính theo cấu trúc 5 phân hệ mới
+├── server.py                  # Local Web Server chạy bằng Python 3
+├── server.js                  # Local Web Server chạy bằng Node.js
+├── README.md                  # Hướng dẫn chi tiết dự án
+├── styles/
+│   └── main.css               # Hệ thống thiết kế EcoStudy 2.0 (Theme sáng/tối, Responsive)
+└── scripts/
+    ├── algorithms.js          # Thuật toán điểm P, Feasibility, Smart Rest, Timetable, Decompose
+    ├── state.js               # Quản lý tài khoản đa người dùng, dữ liệu cô lập, LocalStorage
+    ├── ui.js                  # Điều khiển tương tác 5 tabs, Chatbot, Modals, Pomodoro
+    └── app.js                 # Điểm khởi chạy ứng dụng (Entry point)
 ```
-

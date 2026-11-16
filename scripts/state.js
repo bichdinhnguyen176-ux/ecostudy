@@ -1,16 +1,20 @@
 /**
  * ECOSTUDY CENTRAL STATE STORE
- * Manages reactive data, LocalStorage persistence, and initial datasets
+ * Manages multi-user authentication, data isolation, LocalStorage persistence,
+ * reactive state subscriptions, timetable schedules, tasks, notifications, and settings.
  */
 
-const STORAGE_KEY = "ECOSTUDY_DATA_STORE_V1";
+const ACCOUNTS_STORAGE_KEY = "ECOSTUDY_ACCOUNTS_V2";
+const SESSION_KEY = "ECOSTUDY_CURRENT_USER_V2";
+const DATA_PREFIX = "ECOSTUDY_USER_DATA_V2_";
 
-const initialTasks = [
+// Default initial tasks for demo/new student account
+const getDefaultInitialTasks = () => [
   {
     id: "task-1",
-    title: "Giải đề Toán: Ứng dụng Tích phân tính Diện tích hình phẳng",
+    title: "Giải đề Toán: Ứng dụng Tích phân tính diện tích hình phẳng",
     subject: "Toán",
-    deadline: "2026-11-09",
+    deadline: new Date(Date.now() + 86400000).toISOString().split('T')[0], // Ngày mai
     deadlineType: "hard", // 'hard' | 'soft'
     importance: 9,
     difficultyWorkload: 8,
@@ -19,26 +23,26 @@ const initialTasks = [
     prerequisiteRequirement: 9,
     estimatedMinutes: 60,
     actualMinutes: null,
-    status: "in_progress", // 10 states as specified
+    status: "in_progress", // 'not_started' | 'scheduled' | 'in_progress' | 'completed' | 'partially_completed' | 'overdue' | 'needs_support'
     subtasks: [
-      { id: "sub-1-1", title: "Ôn lại 3 công thức tính tích phân giới hạn bởi 2 đường cong", duration: 15, goal: "Nhớ công thức", criteria: "Viết đúng công thức", completed: true },
+      { id: "sub-1-1", title: "Ôn lại 3 công thức tính tích phân giới hạn bởi 2 đường cong", duration: 15, goal: "Nhớ công thức", criteria: "Viết đúng công thức chuẩn", completed: true },
       { id: "sub-1-2", title: "Giải 5 bài cơ bản tìm hoành độ giao điểm", duration: 25, goal: "Rèn phản xạ giải phương trình", criteria: "Đúng 5/5 bài", completed: true },
-      { id: "sub-1-3", title: "Giải 3 bài toán thực tế có đồ thị hàm bậc ba", duration: 20, goal: "Vận dụng cao", criteria: "Lập đúng biểu thức diện tích", completed: false }
+      { id: "sub-1-3", title: "Giải 2 bài toán thực tế có đồ thị hàm bậc ba", duration: 20, goal: "Vận dụng nâng cao", criteria: "Lập đúng biểu thức diện tích", completed: false }
     ],
     knowledgeGaps: ["Dạng toán đồ thị có 2 phần diện tích đối xứng"],
     rescheduleCount: 0,
     timeSlot: "19:30 - 20:30",
-    notes: "Bài kiểm tra 1 tiết sắp tới chiếm 20% điểm số."
+    notes: "Bài kiểm tra 1 tiết sắp tới chiếm 20% điểm số học kỳ."
   },
   {
     id: "task-2",
     title: "Tiếng Anh: Luyện 2 bài Reading Comprehension chủ đề Môi trường",
     subject: "Tiếng Anh",
-    deadline: "2026-11-11",
+    deadline: new Date(Date.now() + 172800000).toISOString().split('T')[0], // Ngày mốt
     deadlineType: "soft",
     importance: 7,
     difficultyWorkload: 6,
-    deadlineProximity: 5,
+    deadlineProximity: 6,
     lossConsequence: 5,
     prerequisiteRequirement: 6,
     estimatedMinutes: 45,
@@ -48,37 +52,57 @@ const initialTasks = [
     knowledgeGaps: [],
     rescheduleCount: 0,
     timeSlot: "20:45 - 21:30",
-    notes: "Tập trung gạch chân keywords và tra 8 từ mới Collocation."
+    notes: "Tập trung gạch chân keywords và tra cứu 8 collocations mới."
   },
   {
     id: "task-3",
-    title: "Vật lý: Bài tập Định luật Cu-lông & Lực điện trường",
+    title: "Vật lý: Bài tập Định luật Cu-lông & Cường độ điện trường",
     subject: "Vật lý",
-    deadline: "2026-11-08",
-    deadlineType: "soft",
+    deadline: new Date(Date.now() - 86400000).toISOString().split('T')[0], // Hôm qua (Quá hạn)
+    deadlineType: "hard",
     importance: 8,
-    difficultyWorkload: 7,
-    deadlineProximity: 8,
-    lossConsequence: 7,
+    difficultyWorkload: 8,
+    deadlineProximity: 10,
+    lossConsequence: 8,
     prerequisiteRequirement: 8,
-    estimatedMinutes: 40,
+    estimatedMinutes: 45,
     actualMinutes: null,
-    status: "needs_support", // Task tồn đọng cần giải quyết thông minh
+    status: "overdue", // Tồn đọng quá hạn
     subtasks: [],
     knowledgeGaps: ["Vectơ cường độ điện trường tổng hợp khi các điện tích thẳng hàng"],
-    rescheduleCount: 2,
-    timeSlot: "Chờ điều chỉnh",
-    notes: "Hôm qua chưa làm xong do phần tổng hợp lực vectơ bị nhầm góc lượng giác."
+    rescheduleCount: 1,
+    timeSlot: "Chờ sắp xếp lại",
+    notes: "Chưa hoàn thành do tối qua bị sốt nhẹ, cần sắp xếp lại lịch học vào khoảng trống thích hợp."
   },
   {
     id: "task-4",
-    title: "Hóa học: Viết cơ chế phản ứng Thủy phân Este trong môi trường Kiềm",
-    subject: "Hóa học",
-    deadline: "2026-11-12",
+    title: "Ngữ văn: Lập dàn ý bài văn nghị luận xã hội về lối sống xanh",
+    subject: "Ngữ văn",
+    deadline: new Date(Date.now() + 259200000).toISOString().split('T')[0],
     deadlineType: "soft",
     importance: 6,
     difficultyWorkload: 5,
     deadlineProximity: 4,
+    lossConsequence: 4,
+    prerequisiteRequirement: 5,
+    estimatedMinutes: 40,
+    actualMinutes: null,
+    status: "not_started",
+    subtasks: [],
+    knowledgeGaps: [],
+    rescheduleCount: 0,
+    timeSlot: "Chưa xếp lịch",
+    notes: "Sưu tầm 2 dẫn chứng thời sự tiêu biểu."
+  },
+  {
+    id: "task-5",
+    title: "Hóa học: Viết cơ chế phản ứng Thủy phân Este trong môi trường Kiềm",
+    subject: "Hóa học",
+    deadline: new Date(Date.now() - 172800000).toISOString().split('T')[0],
+    deadlineType: "soft",
+    importance: 7,
+    difficultyWorkload: 5,
+    deadlineProximity: 2,
     lossConsequence: 4,
     prerequisiteRequirement: 7,
     estimatedMinutes: 30,
@@ -92,154 +116,312 @@ const initialTasks = [
   }
 ];
 
-const initialKnowledgeGaps = [
-  {
-    id: "gap-1",
-    subject: "Toán",
-    topic: "Tích phân hàm ẩn và đổi biến số",
-    notes: "Hay nhầm lẫn giữa việc đổi biến và vi phân trực tiếp dt = u'(x)dx",
-    errorFrequency: 3,
-    memoryLevel: 2, // 1 -> 5
-    nextReviewDate: "2026-11-09",
-    lastReviewed: "2026-11-07"
-  },
-  {
-    id: "gap-2",
-    subject: "Vật lý",
-    topic: "Tổng hợp lực điện trường bằng quy tắc hình bình hành",
-    notes: "Quên bình phương khi áp dụng định lý cosin trong tam giác lực",
-    errorFrequency: 2,
-    memoryLevel: 1,
-    nextReviewDate: "2026-11-09",
-    lastReviewed: "2026-11-06"
-  },
-  {
-    id: "gap-3",
-    subject: "Tiếng Anh",
-    topic: "Mệnh đề quan hệ rút gọn (V-ing / V-ed)",
-    notes: "Thường nhầm giữa thể chủ động (V-ing) và bị động (P.P)",
-    errorFrequency: 1,
-    memoryLevel: 4,
-    nextReviewDate: "2026-11-14",
-    lastReviewed: "2026-11-07"
-  }
+// Default initial timetable slots (Thứ 2 = 2, ..., Chủ Nhật = 8 hoặc 1..7)
+// Sử dụng chuẩn: 2: Thứ 2, 3: Thứ 3, ..., 7: Thứ 7, 8: Chủ Nhật
+const getDefaultInitialTimetable = () => [
+  { id: "slot-1", dayOfWeek: 2, startTime: "07:00", endTime: "11:30", subject: "Lịch học chính khóa sáng", room: "Lớp 12A1", isFixed: true, notes: "Toán, Văn, Anh, GDCD" },
+  { id: "slot-2", dayOfWeek: 2, startTime: "14:00", endTime: "16:30", subject: "Bồi dưỡng Toán chuyên đề", room: "Phòng A203", isFixed: true, notes: "Chuyên đề tích phân nâng cao" },
+  { id: "slot-3", dayOfWeek: 2, startTime: "19:30", endTime: "20:30", subject: "Tự học: Giải đề Toán Tích phân", room: "Góc học tập", isFixed: false, linkedTaskId: "task-1", notes: "Theo kế hoạch EcoStudy" },
+  { id: "slot-4", dayOfWeek: 2, startTime: "20:45", endTime: "21:30", subject: "Tự học: Tiếng Anh Reading", room: "Góc học tập", isFixed: false, linkedTaskId: "task-2", notes: "Luyện đọc hiểu 2 bài" },
+  
+  { id: "slot-5", dayOfWeek: 3, startTime: "07:00", endTime: "11:30", subject: "Lịch học chính khóa sáng", room: "Lớp 12A1", isFixed: true, notes: "Lý, Hóa, Sinh, Tin" },
+  { id: "slot-6", dayOfWeek: 3, startTime: "15:00", endTime: "17:00", subject: "Học thêm Vật lý", room: "Trung tâm", isFixed: true, notes: "Điện trường và dòng điện không đổi" },
+  { id: "slot-7", dayOfWeek: 3, startTime: "19:30", endTime: "21:00", subject: "Tự học: Ôn tập Lý & Ngữ văn", room: "Góc học tập", isFixed: false, notes: "Bù bài tồn đọng" },
+
+  { id: "slot-8", dayOfWeek: 4, startTime: "07:00", endTime: "11:30", subject: "Lịch học chính khóa sáng", room: "Lớp 12A1", isFixed: true, notes: "Toán, Văn, Anh, Sử" },
+  { id: "slot-9", dayOfWeek: 4, startTime: "19:30", endTime: "21:30", subject: "Tự học & Làm bài tập tuần", room: "Góc học tập", isFixed: false, notes: "Khung giờ trống linh hoạt" },
+
+  { id: "slot-10", dayOfWeek: 5, startTime: "07:00", endTime: "11:30", subject: "Lịch học chính khóa sáng", room: "Lớp 12A1", isFixed: true, notes: "Lý, Hóa, Địa, Thể dục" },
+  { id: "slot-11", dayOfWeek: 5, startTime: "14:30", endTime: "16:30", subject: "CLB Khoa học & STEM", room: "Hội trường", isFixed: true, notes: "Hoạt động ngoại khóa" },
+
+  { id: "slot-12", dayOfWeek: 6, startTime: "07:00", endTime: "11:30", subject: "Lịch học chính khóa sáng", room: "Lớp 12A1", isFixed: true, notes: "Toán, Văn, Anh, Sinh hoạt" },
+  { id: "slot-13", dayOfWeek: 6, startTime: "19:00", endTime: "20:30", subject: "Ôn tập tổng hợp cuối tuần", room: "Góc học tập", isFixed: false, notes: "Giải đề thử" },
+
+  { id: "slot-14", dayOfWeek: 7, startTime: "08:30", endTime: "10:30", subject: "Tự học sáng thứ 7", room: "Thư viện", isFixed: false, notes: "Đọc sách tham khảo" },
+  { id: "slot-15", dayOfWeek: 8, startTime: "09:00", endTime: "11:00", subject: "Nghỉ ngơi & Thể thao Chủ Nhật", room: "Công viên", isFixed: true, notes: "Tái tạo năng lượng" }
 ];
 
-const initialFlashcards = [
+// Default initial notifications
+const getDefaultInitialNotifications = () => [
   {
-    id: "fc-1",
-    subject: "Toán",
-    question: "Công thức tính diện tích hình phẳng giới hạn bởi đồ thị y = f(x), trục hoành và hai đường thẳng x=a, x=b là gì?",
-    answer: "S = ∫[a đến b] |f(x)| dx (Luôn có dấu giá trị tuyệt đối để diện tích không âm!)",
-    memoryLevel: 3
+    id: "notif-1",
+    type: "deadline_alert",
+    title: "Cảnh báo Deadline: Toán Tích phân",
+    message: "Bài tập Toán có hạn chót vào ngày mai (23h59). Bạn đã hoàn thành 2/3 bước con.",
+    time: "30 phút trước",
+    read: false,
+    priority: "high"
   },
   {
-    id: "fc-2",
-    subject: "Vật lý",
-    question: "Biểu thức độ lớn định luật Cu-lông giữa 2 điện tích điểm trong chân không?",
-    answer: "F = k * (|q1 * q2|) / r² với k = 9.10⁹ N.m²/C²",
-    memoryLevel: 4
+    id: "notif-2",
+    type: "smart_rest",
+    title: "Nhắc nhở Giờ nghỉ Thông minh",
+    message: "Mục tiêu ngủ hôm nay là 23:00. Vui lòng hoàn thành buổi học trước 22:30 để thư giãn.",
+    time: "2 giờ trước",
+    read: false,
+    priority: "medium"
   },
   {
-    id: "fc-3",
-    subject: "Hóa học",
-    question: "Phản ứng xà phòng hóa este là phản ứng một chiều hay thuận nghịch?",
-    answer: "Là phản ứng MỘT CHIỀU (thủy phân este trong môi trường kiềm có đun nóng tạo muối và ancol/phenol).",
-    memoryLevel: 5
-  }
-];
-
-const initialCheckInData = {
-  date: "2026-11-08",
-  sleepHours: 7,
-  alertness: 7,
-  stressLevel: 4,
-  availableMinutes: 180, // 3 tiếng dành cho học tập tối nay
-  studyStartTime: "19:00",
-  studyEndTime: "22:30",
-  fixedActivities: "Ăn tối & tắm rửa (18h-19h), giải trí nghe nhạc (21h30-22h)",
-  userNotes: "Hôm nay tâm trạng khá ổn định, muốn hoàn thành xong phần tích phân Toán.",
-  completedAt: "2026-11-08T07:15:00.000Z"
-};
-
-const initialJournalEntries = [
-  {
-    id: "jr-1",
-    date: "2026-11-07",
-    learned: "Nắm được cách đặt ẩn phụ trong bài toán tích phân lượng giác.",
-    difficulties: "Bài toán vật lý điện trường câu cuối tốn nhiều thời gian vẽ hình.",
-    distractions: "Điện thoại rung tin nhắn nhóm bạn lúc 20h15 làm gián đoạn 15 phút.",
-    goodManagement: "Tuân thủ đúng 2 phiên Pomodoro 25 phút không rời bàn học.",
-    improvementTomorrow: "Bật chế độ Sleep Shield và cất điện thoại sang phòng khác trước khi học."
+    id: "notif-3",
+    type: "system",
+    title: "Chào mừng đến với EcoStudy 2.0!",
+    message: "Giao diện đã được nâng cấp theo chuẩn: Learn Smart. Rest Well. Grow Better.",
+    time: "1 ngày trước",
+    read: true,
+    priority: "low"
   }
 ];
 
 class StateStore {
   constructor() {
-    this.data = this.load();
     this.listeners = [];
+    this.accounts = this.loadAccounts();
+    this.currentUser = this.loadCurrentSession();
+    this.userData = this.loadUserData(this.currentUser?.id);
+
+    // Apply saved theme to <html> tag immediately
+    this.applyThemeToDOM();
   }
 
-  load() {
+  // ---------------- AUTHENTICATION & MULTI-USER ----------------
+  loadAccounts() {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
+      const raw = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
     } catch (e) {
-      console.warn("Could not read from localStorage, using initial mock data.", e);
+      console.warn("Could not load accounts list", e);
+    }
+    // Default account
+    const defaultAccount = {
+      id: "student-minhkhoa",
+      name: "Nguyễn Minh Khoa",
+      email: "minhkhoa@ecostudy.edu.vn",
+      phone: "0901234567",
+      password: "123", // demo password
+      grade: "Lớp 12A1",
+      school: "THPT Chuyên Hà Nội - Amsterdam",
+      targetExam: "Kỳ thi Tốt nghiệp THPT & ĐGNL ĐHQG",
+      role: "student",
+      createdAt: new Date().toISOString()
+    };
+    const list = [defaultAccount];
+    try {
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {}
+    return list;
+  }
+
+  saveAccounts() {
+    try {
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(this.accounts));
+    } catch (e) {
+      console.error("Failed to save accounts", e);
+    }
+  }
+
+  loadCurrentSession() {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const found = this.accounts.find(a => a.id === raw);
+        if (found) return found;
+      }
+    } catch (e) {}
+    // Fallback to first account
+    return this.accounts[0] || null;
+  }
+
+  saveCurrentSession(userId) {
+    try {
+      if (userId) {
+        localStorage.setItem(SESSION_KEY, userId);
+      } else {
+        localStorage.removeItem(SESSION_KEY);
+      }
+    } catch (e) {}
+  }
+
+  login(identifier, password) {
+    const cleanId = (identifier || '').trim().toLowerCase();
+    const account = this.accounts.find(a => 
+      (a.email.toLowerCase() === cleanId || a.phone === cleanId) && a.password === password
+    );
+    if (!account) {
+      throw new Error("Email/Số điện thoại hoặc mật khẩu không chính xác.");
+    }
+    this.currentUser = account;
+    this.saveCurrentSession(account.id);
+    this.userData = this.loadUserData(account.id);
+    this.applyThemeToDOM();
+    this.notify();
+    return account;
+  }
+
+  register({ name, email, phone, password, grade, school }) {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanPhone = (phone || '').trim();
+
+    if (!name || name.trim().length < 2) throw new Error("Vui lòng nhập họ và tên hợp lệ.");
+    if (!cleanEmail && !cleanPhone) throw new Error("Vui lòng cung cấp email hoặc số điện thoại.");
+    if (!password || password.length < 3) throw new Error("Mật khẩu phải từ 3 ký tự trở lên.");
+
+    if (cleanEmail && this.accounts.some(a => a.email.toLowerCase() === cleanEmail)) {
+      throw new Error("Email này đã được đăng ký tài khoản.");
+    }
+    if (cleanPhone && this.accounts.some(a => a.phone === cleanPhone)) {
+      throw new Error("Số điện thoại này đã được đăng ký tài khoản.");
     }
 
+    const newAccount = {
+      id: `student-${Date.now()}`,
+      name: name.trim(),
+      email: cleanEmail || `${cleanPhone}@phone.ecostudy.vn`,
+      phone: cleanPhone || "",
+      password,
+      grade: grade || "Lớp 12",
+      school: school || "THPT",
+      targetExam: "Tốt nghiệp THPT",
+      role: "student",
+      createdAt: new Date().toISOString()
+    };
+
+    this.accounts.push(newAccount);
+    this.saveAccounts();
+
+    // Log in with new account
+    this.currentUser = newAccount;
+    this.saveCurrentSession(newAccount.id);
+    this.userData = this.createDefaultUserData(newAccount.id);
+    this.saveUserData();
+    this.applyThemeToDOM();
+    this.notify();
+    return newAccount;
+  }
+
+  logout() {
+    this.saveCurrentSession(null);
+    this.currentUser = null;
+    this.userData = null;
+    this.notify();
+  }
+
+  resetPassword(identifier, newPassword) {
+    const cleanId = (identifier || '').trim().toLowerCase();
+    const account = this.accounts.find(a => a.email.toLowerCase() === cleanId || a.phone === cleanId);
+    if (!account) {
+      throw new Error("Không tìm thấy tài khoản tương ứng với thông tin đã nhập.");
+    }
+    account.password = newPassword || "123";
+    this.saveAccounts();
+    return true;
+  }
+
+  // ---------------- USER DATA ISOLATION ----------------
+  getUserDataKey(userId) {
+    return `${DATA_PREFIX}${userId || 'default'}`;
+  }
+
+  createDefaultUserData(userId) {
     return {
-      currentUser: {
-        id: "student-01",
-        name: "Nguyễn Minh Khoa",
-        grade: "Lớp 12A1 - THPT Chuyên",
-        targetExam: "Kỳ thi Tốt nghiệp THPT & ĐGNL",
-        role: "student" // 'student' | 'parent' | 'school'
-      },
+      userId,
       currentMode: "normal", // 'normal' | 'low_energy' | 'rest_day' | 'exam_prep'
+      theme: "light", // 'light' (xanh lơ nhạt) | 'dark'
+      studyContinuousMinutes: 0,
       settings: {
         sleepStart: "23:00",
         sleepEnd: "06:30",
         breakIntervalMinutes: 45,
         breakDurationMinutes: 10,
-        enableSleepShield: true,
-        allowParentView: true,
-        allowSchoolAggregates: true,
-        sharePrivateJournal: false // Docx quy định: không chia sẻ nhật ký riêng tư
+        enableSmartRest: true,
+        // Notifications settings
+        notifyInApp: true,
+        notifyEmail: true,
+        notifySMS: false,
+        targetEmail: this.currentUser?.email || "",
+        targetPhone: this.currentUser?.phone || "",
+        notifyStudyStart: true,
+        notifyBreakTime: true,
+        notifyDeadlineWarning: true,
+        notifyBedtime: true,
+        notifyWeeklyReport: true,
+        // Service configurations (User environment config)
+        googleClientId: "",
+        smsApiKey: "",
+        smtpHost: ""
       },
-      tasks: initialTasks,
-      knowledgeGaps: initialKnowledgeGaps,
-      flashcards: initialFlashcards,
-      todayCheckIn: initialCheckInData,
-      journal: initialJournalEntries,
+      tasks: getDefaultInitialTasks(),
+      timetable: getDefaultInitialTimetable(),
+      notifications: getDefaultInitialNotifications(),
+      todayCheckIn: {
+        date: new Date().toISOString().split('T')[0],
+        sleepHours: 7,
+        alertness: 7,
+        stressLevel: 3,
+        availableMinutes: 180,
+        studyStartTime: "19:00",
+        studyEndTime: "22:30",
+        fixedActivities: "Ăn tối & tắm rửa (18h-19h), nghe nhạc (21h30-22h)",
+        userNotes: "Tâm trạng thoải mái, sẵn sàng hoàn thành nhiệm vụ.",
+        completedAt: new Date().toISOString()
+      },
       weeklyStats: {
         completionRate: 85,
-        onTimeRate: 91,
+        onTimeRate: 92,
         totalStudyMinutes: 980,
         totalBreakMinutes: 195,
-        rescheduledCount: 2,
-        sleepAverageHours: 7.1,
+        rescheduledCount: 1,
+        sleepAverageHours: 7.2,
         subjectBreakdown: {
           "Toán": 360,
           "Tiếng Anh": 240,
           "Vật lý": 210,
-          "Hóa học": 170
+          "Hóa học": 110,
+          "Ngữ văn": 60
         }
       }
     };
   }
 
-  save() {
+  loadUserData(userId) {
+    if (!userId) return null;
+    const key = this.getUserDataKey(userId);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Ensure default fields exist
+        if (!parsed.timetable) parsed.timetable = getDefaultInitialTimetable();
+        if (!parsed.notifications) parsed.notifications = getDefaultInitialNotifications();
+        if (!parsed.theme) parsed.theme = "light";
+        return parsed;
+      }
     } catch (e) {
-      console.error("Failed to save state to localStorage", e);
+      console.warn("Could not read user data, initializing default.", e);
+    }
+    const defData = this.createDefaultUserData(userId);
+    try {
+      localStorage.setItem(key, JSON.stringify(defData));
+    } catch (e) {}
+    return defData;
+  }
+
+  saveUserData() {
+    if (!this.currentUser || !this.userData) return;
+    const key = this.getUserDataKey(this.currentUser.id);
+    try {
+      localStorage.setItem(key, JSON.stringify(this.userData));
+    } catch (e) {
+      console.error("Failed to save user data to localStorage", e);
     }
     this.notify();
   }
 
+  applyThemeToDOM() {
+    const theme = this.userData?.theme || "light";
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
+  // ---------------- SUBSCRIPTIONS ----------------
   subscribe(callback) {
     this.listeners.push(callback);
     return () => {
@@ -248,93 +430,178 @@ class StateStore {
   }
 
   notify() {
-    this.listeners.forEach(cb => cb(this.data));
+    this.listeners.forEach(cb => {
+      try {
+        cb(this.getState());
+      } catch (e) {
+        console.error("Error in state subscriber callback:", e);
+      }
+    });
   }
 
-  // Task Actions
+  getState() {
+    return {
+      currentUser: this.currentUser,
+      isLoggedIn: !!this.currentUser,
+      data: this.userData
+    };
+  }
+
+  // ---------------- TASK ACTIONS ----------------
   addTask(task) {
+    if (!this.userData) return null;
     const newTask = {
       id: `task-${Date.now()}`,
-      status: "pending",
+      status: "not_started",
       subtasks: [],
       knowledgeGaps: [],
       rescheduleCount: 0,
       actualMinutes: null,
+      deadlineType: task.deadlineType || "soft",
+      importance: Number(task.importance) || 5,
+      difficultyWorkload: Number(task.difficultyWorkload) || 5,
+      deadlineProximity: Number(task.deadlineProximity) || 5,
+      lossConsequence: Number(task.lossConsequence) || 5,
+      prerequisiteRequirement: Number(task.prerequisiteRequirement) || 5,
+      estimatedMinutes: Number(task.estimatedMinutes) || 45,
       ...task
     };
-    this.data.tasks.push(newTask);
-    this.save();
+    this.userData.tasks.unshift(newTask);
+    this.saveUserData();
     return newTask;
   }
 
   updateTask(taskId, updates) {
-    const task = this.data.tasks.find(t => t.id === taskId);
+    if (!this.userData) return null;
+    const task = this.userData.tasks.find(t => t.id === taskId);
     if (task) {
       Object.assign(task, updates);
-      this.save();
+      this.saveUserData();
     }
     return task;
   }
 
   deleteTask(taskId) {
-    this.data.tasks = this.data.tasks.filter(t => t.id !== taskId);
-    this.save();
+    if (!this.userData) return;
+    this.userData.tasks = this.userData.tasks.filter(t => t.id !== taskId);
+    this.saveUserData();
   }
 
-  setRole(newRole) {
-    this.data.currentUser.role = newRole;
-    this.save();
+  // ---------------- TIMETABLE ACTIONS ----------------
+  addScheduleSlot(slot) {
+    if (!this.userData) return null;
+    const newSlot = {
+      id: `slot-${Date.now()}`,
+      dayOfWeek: Number(slot.dayOfWeek) || 2,
+      startTime: slot.startTime || "08:00",
+      endTime: slot.endTime || "09:30",
+      subject: slot.subject || "Môn học",
+      room: slot.room || "",
+      isFixed: !!slot.isFixed,
+      linkedTaskId: slot.linkedTaskId || null,
+      notes: slot.notes || ""
+    };
+    this.userData.timetable.push(newSlot);
+    this.saveUserData();
+    return newSlot;
+  }
+
+  updateScheduleSlot(slotId, updates) {
+    if (!this.userData) return null;
+    const slot = this.userData.timetable.find(s => s.id === slotId);
+    if (slot) {
+      Object.assign(slot, updates);
+      this.saveUserData();
+    }
+    return slot;
+  }
+
+  deleteScheduleSlot(slotId) {
+    if (!this.userData) return;
+    this.userData.timetable = this.userData.timetable.filter(s => s.id !== slotId);
+    this.saveUserData();
+  }
+
+  // ---------------- NOTIFICATIONS ----------------
+  addNotification(notif) {
+    if (!this.userData) return;
+    const newNotif = {
+      id: `notif-${Date.now()}`,
+      time: "Vừa xong",
+      read: false,
+      priority: notif.priority || "medium",
+      ...notif
+    };
+    this.userData.notifications.unshift(newNotif);
+    this.saveUserData();
+    return newNotif;
+  }
+
+  markNotificationAsRead(notifId) {
+    if (!this.userData) return;
+    if (notifId === 'all') {
+      this.userData.notifications.forEach(n => n.read = true);
+    } else {
+      const target = this.userData.notifications.find(n => n.id === notifId);
+      if (target) target.read = true;
+    }
+    this.saveUserData();
+  }
+
+  clearNotifications() {
+    if (!this.userData) return;
+    this.userData.notifications = [];
+    this.saveUserData();
+  }
+
+  // ---------------- APP PREFERENCES ----------------
+  setTheme(theme) {
+    if (!this.userData) return;
+    this.userData.theme = theme;
+    this.saveUserData();
+    this.applyThemeToDOM();
   }
 
   setMode(newMode) {
-    this.data.currentMode = newMode;
-    this.save();
+    if (!this.userData) return;
+    this.userData.currentMode = newMode;
+    this.saveUserData();
   }
 
   saveCheckIn(checkInData) {
-    this.data.todayCheckIn = {
+    if (!this.userData) return;
+    this.userData.todayCheckIn = {
       ...checkInData,
       date: new Date().toISOString().split('T')[0],
       completedAt: new Date().toISOString()
     };
-    this.save();
+    this.saveUserData();
   }
 
-  saveJournal(entry) {
-    this.data.journal.unshift({
-      id: `jr-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
-      ...entry
-    });
-    this.save();
+  saveSettings(newSettings) {
+    if (!this.userData) return;
+    this.userData.settings = {
+      ...this.userData.settings,
+      ...newSettings
+    };
+    this.saveUserData();
   }
 
-  addKnowledgeGap(gap) {
-    this.data.knowledgeGaps.unshift({
-      id: `gap-${Date.now()}`,
-      memoryLevel: 2,
-      errorFrequency: 1,
-      lastReviewed: new Date().toISOString().split('T')[0],
-      ...gap
-    });
-    this.save();
+  updateProfile(profileData) {
+    if (!this.currentUser) return;
+    Object.assign(this.currentUser, profileData);
+    const acc = this.accounts.find(a => a.id === this.currentUser.id);
+    if (acc) Object.assign(acc, profileData);
+    this.saveAccounts();
+    this.notify();
   }
 
-  updateKnowledgeGap(gapId, memoryLevel) {
-    const gap = this.data.knowledgeGaps.find(g => g.id === gapId);
-    if (gap) {
-      gap.memoryLevel = memoryLevel;
-      gap.lastReviewed = new Date().toISOString().split('T')[0];
-      this.save();
-    }
-  }
-
-  resetAllData() {
-    localStorage.removeItem(STORAGE_KEY);
-    this.data = this.load();
-    this.save();
+  resetUserData() {
+    if (!this.currentUser) return;
+    this.userData = this.createDefaultUserData(this.currentUser.id);
+    this.saveUserData();
+    this.applyThemeToDOM();
   }
 }
 
 export const store = new StateStore();
-
