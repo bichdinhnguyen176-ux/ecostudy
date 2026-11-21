@@ -17,14 +17,26 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf'
 };
 
 const server = http.createServer((req, res) => {
-  let reqPath = decodeURI(req.url.split('?')[0]);
-  if (reqPath === '/' || reqPath === '') {
-    reqPath = '/index.html';
+  let reqPath = '/index.html';
+  try {
+    const rawPath = req.url.split('?')[0];
+    reqPath = decodeURI(rawPath);
+    if (reqPath === '/' || reqPath === '') {
+      reqPath = '/index.html';
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('400 Bad Request');
+    return;
   }
 
   const filePath = path.join(PUBLIC_DIR, reqPath);
@@ -48,19 +60,25 @@ const server = http.createServer((req, res) => {
 
     res.writeHead(200, {
       'Content-Type': contentType,
-      'Cache-Control': 'no-cache'
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'X-Content-Type-Options': 'nosniff'
     });
 
     const stream = fs.createReadStream(filePath);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      }
+      res.end();
+    });
     stream.pipe(res);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`====================================================`);
-  console.log(`🌱 EcoStudy Platform is running!`);
+  console.log('====================================================');
+  console.log('🌱 EcoStudy Platform is running!');
   console.log(`🔗 Local URL: http://localhost:${PORT}`);
-  console.log(`✨ Concept: Learn Smart. Rest Well. Grow Better.`);
-  console.log(`====================================================`);
+  console.log('✨ Concept: Learn Smart. Rest Well. Grow Better.');
+  console.log('====================================================');
 });
-
